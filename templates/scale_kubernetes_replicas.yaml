@@ -5,6 +5,9 @@ category: "kubernetes"
 icon: "straighten"
 status: ACTIVE
 tags:
+  labels:
+    - "scale"
+    - "deployment"
   event_sources:
     - "prometheus"
     - "alertmanager"

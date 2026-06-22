@@ -5,6 +5,10 @@ category: "gcp"
 icon: "sd_storage"
 status: ACTIVE
 tags:
+  labels:
+    - "storage"
+    - "resize"
+    - "disk"
   event_sources:
     - "gcp_monitoring"
     - "gcp"

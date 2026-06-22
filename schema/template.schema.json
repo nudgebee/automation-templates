@@ -26,6 +26,11 @@
     "tags": {
       "type": "object",
       "properties": {
+        "labels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Human-facing browse/search labels shown as chips in the UI (e.g. restart, scale, storage, destructive, read-only). Distinct from the event-matching fields below."
+        },
         "event_sources": { "type": "array", "items": { "type": "string" } },
         "alert_names": { "type": "array", "items": { "type": "string" } },
         "subject_types": { "type": "array", "items": { "type": "string" } }

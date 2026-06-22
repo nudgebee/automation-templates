@@ -5,6 +5,10 @@ category: "azure"
 icon: "power_settings_new"
 status: ACTIVE
 tags:
+  labels:
+    - "restart"
+    - "vm"
+    - "disruptive"
   event_sources:
     - "azure_monitor"
     - "azure"

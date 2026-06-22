@@ -5,6 +5,10 @@ category: "aws"
 icon: "power_settings_new"
 status: ACTIVE
 tags:
+  labels:
+    - "restart"
+    - "ec2"
+    - "disruptive"
   event_sources:
     - "cloudwatch"
     - "aws"

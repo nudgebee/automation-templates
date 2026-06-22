@@ -5,6 +5,10 @@ category: "kubernetes"
 icon: "tune"
 status: ACTIVE
 tags:
+  labels:
+    - "scale"
+    - "rabbitmq"
+    - "consumers"
   event_sources:
     - "prometheus"
     - "kubernetes_api_server"

@@ -5,6 +5,10 @@ category: "azure"
 icon: "sd_storage"
 status: ACTIVE
 tags:
+  labels:
+    - "storage"
+    - "expand"
+    - "disk"
   event_sources:
     - "azure_monitor"
     - "azure"

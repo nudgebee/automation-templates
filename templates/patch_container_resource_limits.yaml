@@ -5,6 +5,10 @@ category: "kubernetes"
 icon: "tune"
 status: ACTIVE
 tags:
+  labels:
+    - "resources"
+    - "patch"
+    - "deployment"
   event_sources:
     - "prometheus"
     - "alertmanager"

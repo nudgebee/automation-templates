@@ -5,6 +5,11 @@ category: "aws"
 icon: "analytics"
 status: ACTIVE
 tags:
+  labels:
+    - "diagnostic"
+    - "read-only"
+    - "rds"
+    - "database"
   event_sources:
     - "AWS_CloudWatch_Alarm"
     - "AWS_EventBridge"

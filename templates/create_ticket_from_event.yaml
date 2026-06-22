@@ -5,6 +5,9 @@ category: "general"
 icon: "confirmation_number"
 status: ACTIVE
 tags:
+  labels:
+    - "ticketing"
+    - "integration"
   event_sources:
     - "prometheus"
     - "alertmanager"

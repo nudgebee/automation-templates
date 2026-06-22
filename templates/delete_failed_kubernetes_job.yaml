@@ -5,6 +5,10 @@ category: "kubernetes"
 icon: "delete_sweep"
 status: ACTIVE
 tags:
+  labels:
+    - "delete"
+    - "job"
+    - "cleanup"
   event_sources:
     - "prometheus"
     - "alertmanager"

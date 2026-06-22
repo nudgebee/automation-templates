@@ -5,6 +5,10 @@ category: "kubernetes"
 icon: "restart_alt"
 status: ACTIVE
 tags:
+  labels:
+    - "restart"
+    - "deployment"
+    - "disruptive"
   event_sources:
     - "prometheus"
     - "alertmanager"
