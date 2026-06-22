@@ -5,6 +5,9 @@ category: "gcp"
 icon: "restart_alt"
 status: ACTIVE
 tags:
+  labels:
+    - "restart"
+    - "disruptive"
   event_sources:
     - "GCP_Metric_Alert"
     - "gcp_monitoring_webhook"

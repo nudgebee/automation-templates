@@ -5,6 +5,8 @@ category: "aws"
 icon: "replay"
 status: ACTIVE
 tags:
+  labels:
+    - "deploy"
   event_sources:
     - "cloudwatch"
     - "aws"

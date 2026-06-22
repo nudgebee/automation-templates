@@ -5,6 +5,8 @@ category: "kubernetes"
 icon: "tune"
 status: ACTIVE
 tags:
+  labels:
+    - "scale"
   event_sources:
     - "prometheus"
     - "kubernetes_api_server"

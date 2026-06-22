@@ -5,6 +5,8 @@ category: "aws"
 icon: "unfold_more"
 status: ACTIVE
 tags:
+  labels:
+    - "scale"
   event_sources:
     - "cloudwatch"
     - "aws"

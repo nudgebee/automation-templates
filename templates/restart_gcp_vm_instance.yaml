@@ -5,6 +5,9 @@ category: "gcp"
 icon: "power_settings_new"
 status: ACTIVE
 tags:
+  labels:
+    - "restart"
+    - "disruptive"
   event_sources:
     - "gcp_monitoring"
     - "gcp"

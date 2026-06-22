@@ -5,6 +5,9 @@ category: "aws"
 icon: "delete_sweep"
 status: ACTIVE
 tags:
+  labels:
+    - "purge"
+    - "destructive"
   event_sources:
     - "AWS_CloudWatch_Alarm"
     - "AWS_EventBridge"

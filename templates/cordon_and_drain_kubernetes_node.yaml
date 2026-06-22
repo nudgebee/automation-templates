@@ -5,6 +5,9 @@ category: "kubernetes"
 icon: "block"
 status: ACTIVE
 tags:
+  labels:
+    - "drain"
+    - "disruptive"
   event_sources:
     - "prometheus"
     - "alertmanager"

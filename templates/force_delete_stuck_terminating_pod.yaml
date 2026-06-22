@@ -5,6 +5,9 @@ category: "kubernetes"
 icon: "delete_forever"
 status: ACTIVE
 tags:
+  labels:
+    - "delete"
+    - "destructive"
   event_sources:
     - "prometheus"
     - "kubernetes_api_server"
