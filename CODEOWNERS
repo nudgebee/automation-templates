@@ -1,0 +1,4 @@
+# All changes to automation templates require review. These templates are synced
+# into Nudgebee runbook-server and instantiated by tenants, so every change is a
+# supply-chain change — keep required review on.
+*       @nudgebee/runbook-maintainers
