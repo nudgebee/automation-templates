@@ -7,7 +7,6 @@ status: ACTIVE
 tags:
   labels:
     - "delete"
-    - "pod"
     - "destructive"
   event_sources:
     - "prometheus"

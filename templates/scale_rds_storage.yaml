@@ -6,10 +6,7 @@ icon: "database"
 status: ACTIVE
 tags:
   labels:
-    - "storage"
     - "scale"
-    - "rds"
-    - "database"
   event_sources:
     - "cloudwatch"
     - "aws"

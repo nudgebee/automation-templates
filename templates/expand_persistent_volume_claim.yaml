@@ -6,9 +6,7 @@ icon: "sd_storage"
 status: ACTIVE
 tags:
   labels:
-    - "storage"
     - "expand"
-    - "pvc"
   event_sources:
     - "prometheus"
     - "alertmanager"

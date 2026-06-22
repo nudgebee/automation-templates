@@ -7,7 +7,6 @@ status: ACTIVE
 tags:
   labels:
     - "restart"
-    - "ec2"
     - "disruptive"
   event_sources:
     - "cloudwatch"

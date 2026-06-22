@@ -6,9 +6,8 @@ icon: "tune"
 status: ACTIVE
 tags:
   labels:
-    - "resources"
     - "patch"
-    - "deployment"
+    - "disruptive"
   event_sources:
     - "prometheus"
     - "alertmanager"

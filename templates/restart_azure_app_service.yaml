@@ -7,7 +7,6 @@ status: ACTIVE
 tags:
   labels:
     - "restart"
-    - "app-service"
     - "disruptive"
   event_sources:
     - "azure_monitor"

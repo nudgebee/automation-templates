@@ -7,7 +7,6 @@ status: ACTIVE
 tags:
   labels:
     - "ticketing"
-    - "integration"
   event_sources:
     - "prometheus"
     - "alertmanager"

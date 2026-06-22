@@ -7,8 +7,6 @@ status: ACTIVE
 tags:
   labels:
     - "restart"
-    - "cloudsql"
-    - "database"
     - "disruptive"
   event_sources:
     - "GCP_Metric_Alert"
