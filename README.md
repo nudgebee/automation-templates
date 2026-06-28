@@ -16,8 +16,26 @@ templates/<slug>.yaml          # one template per file; file name MUST equal `sl
 manifest.yaml                  # generated index [{slug, path, sha256}] — runbook-server verifies each file against this
 schema/template.schema.json    # JSON Schema; CI validates every template
 scripts/gen_manifest.py        # regenerate manifest.yaml (run before committing template changes)
-scripts/validate.py            # local equivalent of the CI validation
+scripts/validate.py            # local equivalent of the CI validation (schema + workflow semantics)
 ```
+
+## Validation layers
+
+`scripts/validate.py` (run in CI on every PR, including fork PRs — no secrets or
+backend required) checks two things:
+
+1. **Structure** — the JSON Schema in `schema/template.schema.json`: required keys,
+   enums, `slug` == file name, no duplicate slugs.
+2. **Workflow semantics** — the same rules the engine enforces in
+   `runbook-server/internal/model/validation.go` and the task registry: every task
+   `type` is a real engine task type (an unknown/mistyped type is rejected at sync
+   time as `task not found`), `depends_on` resolves to an existing task, no
+   duplicate task ids, no dependency cycles, supported trigger types, and
+   well-formed durations. This is the offline equivalent of `nbctl workflow
+   validate` — it needs no backend, so it gates external contributions too.
+
+When the engine registers a new task type, add it to the `TASK_TYPES` set in
+`scripts/validate.py` (its source of truth is `runbook-server`'s task registry).
 
 ## Authoring a template
 
