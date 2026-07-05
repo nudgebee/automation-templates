@@ -7,7 +7,7 @@ status: ACTIVE
 
 tags:
   labels:
-    - "testing"
+    - "read-only"
   event_sources: []
   alert_names: []
   subject_types: []
