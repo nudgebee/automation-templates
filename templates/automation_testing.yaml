@@ -1,7 +1,7 @@
 slug: automation_testing
 name: "Automation Testing"
 description: "A simple manual automation that prints Hello World."
-category: "testing"
+category: "general"
 icon: "play_arrow"
 status: ACTIVE
 
