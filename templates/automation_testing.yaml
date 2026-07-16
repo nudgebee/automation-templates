@@ -1,0 +1,37 @@
+slug: automation_testing
+name: "Automation Testing"
+description: "A simple manual automation that prints Hello World."
+category: "general"
+icon: "play_arrow"
+status: ACTIVE
+
+tags:
+  labels:
+    - "read-only"
+  event_sources: []
+  alert_names: []
+  subject_types: []
+
+definition:
+  version: "v1"
+
+  inputs: []
+
+  triggers:
+    - type: "manual"
+
+  tasks:
+    - id: "core_print"
+      type: "core.print"
+      params:
+        message: "Hello World"
+
+  retry_policy:
+    maximum_attempts: 3
+    initial_interval: "1s"
+    maximum_interval: ""
+    backoff_coefficient: 2
+
+  timeout: ""
+
+template_variables: []
