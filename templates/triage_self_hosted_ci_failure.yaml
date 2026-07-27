@@ -1,0 +1,286 @@
+slug: triage_self_hosted_ci_failure
+name: "Triage Self-Hosted CI Failure"
+description: >-
+  When a GitHub Actions run fails on self-hosted Kubernetes runners, decide whether it was the code
+  or the runner infrastructure. Captures the runner pod and cluster events at the moment of failure —
+  evidence that is gone within the hour, because runner pods are deleted when their job ends — then
+  asks AI for a root cause, posts it to chat, and offers a one-click re-run when (and only when) the
+  failure was transient infrastructure.
+category: "kubernetes"
+icon: "bug_report"
+status: ACTIVE
+tags:
+  labels:
+    - "diagnostic"
+    - "deploy"
+  event_sources:
+    - "GitHub_Webhook"
+  alert_names: []
+  subject_types:
+    - "pod"
+    - "node"
+template_variables:
+  - id: "github_integration_id"
+    input_ref: "github_integration_id"
+    display_name: "GitHub Integration"
+    help_text: "Integration used to read the failed run and, on approval, request the re-run. Re-running needs the `actions: write` permission."
+    required: true
+    type: "integration_selector"
+  - id: "chat_channel"
+    input_ref: "chat_channel"
+    display_name: "Chat Channel"
+    help_text: "Channel ID that receives the failure summary and the retry approval."
+    required: true
+    type: "string"
+  - id: "runner_namespace"
+    input_ref: "runner_namespace"
+    display_name: "Runner Namespace"
+    help_text: "Namespace holding the ephemeral runner pods and the Actions Runner Controller."
+    required: true
+    type: "string"
+definition:
+  version: "v1"
+  timeout: "4h"
+  retry_policy:
+    initial_interval: "1s"
+    maximum_attempts: 3
+    maximum_interval: "1m"
+    backoff_coefficient: 2
+  inputs:
+    - id: "github_integration_id"
+      type: "string"
+      description: "GitHub integration used to read the run and request the re-run."
+      required: true
+    - id: "chat_channel"
+      type: "string"
+      description: "Channel ID for the failure summary and retry approval."
+      required: true
+    - id: "runner_namespace"
+      type: "string"
+      default: "actions-runner-system"
+      description: "Namespace holding the self-hosted runner pods and controller."
+  triggers:
+    # Create a workflow_webhook integration named `github_ci_webhook`, then add a
+    # repository webhook pointing at its URL with the `workflow_run` event. The
+    # filter below fires only on a completed run whose conclusion is failure.
+    # Narrow it further by adding a repository check if this should not apply to
+    # every repository sending to that integration.
+    - type: "webhook"
+      params:
+        integration_name: "github_ci_webhook"
+        filter: "{{ 'true' if webhook_payload.action == 'completed' and webhook_payload.workflow_run.conclusion == 'failure' else 'false' }}"
+  tasks:
+    # The webhook body arrives as a JSON *string*, so every reference below parses
+    # it with `| from_json`. Numeric ids need `| int` — JSON numbers decode as
+    # floats and would otherwise render as "12345.0".
+    - id: "fetch_job_meta"
+      type: "scm.github.cli"
+      timeout: "10m"
+      params:
+        integration_id: "{{ Inputs.github_integration_id }}"
+        command: >-
+          gh api repos/{{ (Inputs.webhook_payload | from_json).repository.full_name }}/actions/runs/{{ (Inputs.webhook_payload | from_json).workflow_run.id | int }}/jobs
+          --jq '[.jobs[] | {name, status, conclusion, runner_name, labels, started_at, completed_at,
+          failed_steps: [(.steps // [])[] | select(.conclusion == "failure") | {number, name}]}]'
+      failure_policy:
+        action: "continue"
+
+    - id: "fetch_failed_log"
+      type: "scm.github.cli"
+      timeout: "10m"
+      params:
+        integration_id: "{{ Inputs.github_integration_id }}"
+        command: "gh run view {{ (Inputs.webhook_payload | from_json).workflow_run.id | int }} --repo {{ (Inputs.webhook_payload | from_json).repository.full_name }} --log-failed | tail -c 8000"
+      failure_policy:
+        action: "continue"
+
+    # The runner pod name equals the GitHub job's runner_name, and it is the key
+    # every cluster lookup below needs. It is not in the webhook payload.
+    - id: "extract_runner"
+      type: "data.transform"
+      timeout: "5m"
+      depends_on:
+        - "fetch_job_meta"
+      params:
+        input: "{{ Tasks['fetch_job_meta'].output.data | default('[]') }}"
+        inputType: "json"
+        scriptType: "javascript"
+        outputType: "string"
+        expression: >-
+          var jobs = Array.isArray(data) ? data : [];
+          var failed = jobs.filter(function (j) { return j.conclusion === 'failure'; });
+          result = (failed.length && failed[0].runner_name) ? failed[0].runner_name : '';
+      failure_policy:
+        action: "continue"
+
+    # Perishable evidence, and the reason this runs on a trigger rather than on
+    # demand: the runner pod is deleted when its job ends and events age out in
+    # about an hour, so none of this can be recovered later.
+    # Commands are separated by `;` not `&&` — a missing pod is the NORMAL case
+    # and must not prevent the event queries from running.
+    - id: "snapshot"
+      type: "k8s.cli"
+      timeout: "10m"
+      depends_on:
+        - "extract_runner"
+      params:
+        command: >-
+          kubectl -n {{ Inputs.runner_namespace }} describe pod {{ Tasks['extract_runner'].output.data | trim }} ;
+          kubectl -n {{ Inputs.runner_namespace }} get events --sort-by=.lastTimestamp ;
+          kubectl get events --field-selector involvedObject.kind=Node --sort-by=.lastTimestamp
+      failure_policy:
+        action: "continue"
+
+    - id: "rca"
+      type: "llm.investigate"
+      timeout: "20m"
+      depends_on:
+        - "fetch_failed_log"
+        - "snapshot"
+      params:
+        session_scope: "execution"
+        response_format: "json"
+        message: |
+          A GitHub Actions run just failed on self-hosted Kubernetes runners. Investigate it, decide
+          whether this is a CODE failure or a RUNNER-INFRA failure, and choose a remediation.
+
+          ## Anchor
+          Repository: {{ (Inputs.webhook_payload | from_json).repository.full_name }}
+          Workflow: {{ (Inputs.webhook_payload | from_json).workflow_run.name }}
+          Run URL: {{ (Inputs.webhook_payload | from_json).workflow_run.html_url }}
+          Branch: {{ (Inputs.webhook_payload | from_json).workflow_run.head_branch }}
+          Started: {{ (Inputs.webhook_payload | from_json).workflow_run.run_started_at }}
+          Ended (T): {{ (Inputs.webhook_payload | from_json).workflow_run.updated_at }}
+          Runner pod: {{ Tasks['extract_runner'].output.data | default('(none - the job never got a runner)') | trim }}
+          Namespace: {{ Inputs.runner_namespace }}
+
+          Runner pods are ephemeral: one job per pod, pod name equals the job's runner_name, and the
+          pod is deleted when the job ends. A missing pod is NORMAL and is not itself evidence.
+
+          ## Failed jobs and steps (GitHub API - you have no GitHub tools, so this is provided)
+          {{ Tasks['fetch_job_meta'].output.data | default('unavailable') }}
+
+          ## Failed-step logs (GitHub - provided for the same reason)
+          {{ Tasks['fetch_failed_log'].output.data | default('EMPTY - no step produced an error. An empty failed-step log is itself an infra indicator.') }}
+
+          ## Cluster snapshot captured AT T (authoritative - this evidence expires)
+          Captured when the failure arrived. The pod and most events no longer exist, so prefer this
+          over anything your own kubectl calls return for the same objects.
+
+          {{ Tasks['snapshot'].output.data | default('unavailable') }}
+
+          ## Your job
+          Gather whatever else you need with your own tools - controller logs, autoscaler and
+          RunnerDeployment state, node fate, and time-scoped metrics around T. Apply your knowledge
+          base for this cluster's runner architecture and its code-vs-infra method rather than
+          restating it.
+
+          Classify:
+          - CODE - deterministic tool output in a build/test/lint step: compile error, failing
+            assertion, lint finding. Stop there; the cluster is irrelevant.
+          - INFRA - the job dies with no failing step, fails in setup or teardown, shows
+            environmental errors (daemon, socket, disk, network), exits 137, or never got a runner.
+
+          Confirm each conclusion with two independent sources and label every claim confirmed or
+          inferred. If the evidence does not support a verdict, return "undetermined" rather than
+          guessing.
+
+          ## Choosing a remediation
+          Pick exactly one action from this closed list. Do not invent actions and do not emit shell
+          commands - a human approves your choice and the workflow runs a pre-written command for it.
+
+          - "rerun_failed" - ONLY when the failure is infrastructure AND transient, so re-running the
+            same commit on a healthy runner would plausibly pass: a preempted or lost node, a pod
+            killed mid-job, a container-runtime hiccup.
+          - "none" - everything else. Any code failure. Also any infra failure a re-run will not fix:
+            a recurring OOM against the runner memory limit, a job whose runs-on labels match no
+            RunnerDeployment, an autoscaler stuck at zero. Re-running those wastes a runner and hides
+            the real problem.
+
+          When in doubt choose "none". A missed retry costs one manual click; a wrong retry masks a
+          real defect.
+
+          Return JSON with exactly these keys:
+          {"verdict": "code" | "infra" | "undetermined", "layer": "application | pod | node | scheduling | resources | container-runtime | unknown", "headline": "one sentence", "evidence": "markdown bullets, each labelled (confirmed) or (inferred)", "next_action": "one sentence - re-run, fix code, or change infra", "transient": true | false, "remediation": {"action": "rerun_failed" | "none", "rationale": "one sentence saying why this action, or why no action"}}
+
+    # Headline only. Detail goes in the thread so the channel stays scannable.
+    - id: "notify_summary"
+      type: "notifications.im"
+      timeout: "10m"
+      depends_on:
+        - "rca"
+      params:
+        provider: "slack"
+        channel: "{{ Inputs.chat_channel }}"
+        message: |-
+          :rotating_light: *CI failure — {{ Tasks['rca'].output.data.verdict | default('undetermined') | upper }}* ({{ Tasks['rca'].output.data.layer | default('unknown') }}) · `{{ (Inputs.webhook_payload | from_json).repository.full_name }}`
+          <{{ (Inputs.webhook_payload | from_json).workflow_run.html_url }}|{{ (Inputs.webhook_payload | from_json).workflow_run.name }}> on `{{ (Inputs.webhook_payload | from_json).workflow_run.head_branch }}` · runner `{{ Tasks['extract_runner'].output.data | default('none assigned') | trim }}`
+          {{ Tasks['rca'].output.data.headline | default('No conclusion could be drawn from the available evidence.') }}
+
+    # `evidence` may come back as a list or a pre-formatted string depending on the
+    # model, so handle both — a raw list renders as an array dump in chat.
+    - id: "notify_evidence"
+      type: "notifications.im"
+      timeout: "10m"
+      depends_on:
+        - "notify_summary"
+      params:
+        provider: "slack"
+        channel: "{{ Inputs.chat_channel }}"
+        message_thread_id: "{{ Tasks['notify_summary'].output.message_id }}"
+        message: |-
+          *Evidence*
+          {{ '- ' ~ (Tasks['rca'].output.data.evidence | join('\n- ')) if (Tasks['rca'].output.data.evidence is iterable and Tasks['rca'].output.data.evidence is not string) else (Tasks['rca'].output.data.evidence | default('(none)')) }}
+
+          *Next action:* {{ Tasks['rca'].output.data.next_action | default('Investigate manually.') }}{{ '  _(transient — a re-run should pass)_' if Tasks['rca'].output.data.transient else '' }}
+          *Recommended remediation:* `{{ Tasks['rca'].output.data.remediation.action | default('none') }}` — {{ Tasks['rca'].output.data.remediation.rationale | default('no remediation proposed') }}
+
+    # Only offered for transient infra failures. A code failure gets no button —
+    # re-running it would hide the defect.
+    # Threading keeps the prompt with its evidence, but chat clients collapse
+    # thread replies: drop message_thread_id if the prompt must not be missed.
+    - id: "approve_remediation"
+      type: "core.approval"
+      timeout: "90m"
+      depends_on:
+        - "notify_evidence"
+      if: "{{ 'true' if (Tasks['rca'].output.data.remediation.action | default('none')) == 'rerun_failed' else 'false' }}"
+      params:
+        approval_type: "instant_message"
+        im_provider: "slack"
+        im_channel: "{{ Inputs.chat_channel }}"
+        message_thread_id: "{{ Tasks['notify_summary'].output.message_id }}"
+        approval_options:
+          - "approve"
+          - "reject"
+        message: |-
+          Re-run the failed jobs of <{{ (Inputs.webhook_payload | from_json).workflow_run.html_url }}|{{ (Inputs.webhook_payload | from_json).workflow_run.name }}> on `{{ (Inputs.webhook_payload | from_json).workflow_run.head_branch }}`?
+          {{ Tasks['rca'].output.data.remediation.rationale | default('') }}
+          _Evidence is in the thread above. Approving runs `gh run rerun --failed` and nothing else._
+
+    # `status` carries the chosen approval_options value ("approve"), NOT
+    # "approved". Both are accepted so a custom option set does not silently skip
+    # this task — a skipped retry looks identical to a successful one.
+    - id: "retry_run"
+      type: "scm.github.cli"
+      timeout: "10m"
+      depends_on:
+        - "approve_remediation"
+      if: "{{ 'true' if ((Tasks['approve_remediation'].output | default({})).status | default('')) in ['approve','approved'] else 'false' }}"
+      params:
+        integration_id: "{{ Inputs.github_integration_id }}"
+        command: "gh run rerun {{ (Inputs.webhook_payload | from_json).workflow_run.id | int }} --repo {{ (Inputs.webhook_payload | from_json).repository.full_name }} --failed && echo RERUN_REQUESTED"
+      failure_policy:
+        action: "continue"
+
+    - id: "notify_retry"
+      type: "notifications.im"
+      timeout: "10m"
+      depends_on:
+        - "retry_run"
+      if: "{{ 'true' if ((Tasks['approve_remediation'].output | default({})).status | default('')) in ['approve','approved'] else 'false' }}"
+      params:
+        provider: "slack"
+        channel: "{{ Inputs.chat_channel }}"
+        message_thread_id: "{{ Tasks['notify_summary'].output.message_id }}"
+        message: "{{ ':repeat: Re-run of the failed jobs requested.' if 'RERUN_REQUESTED' in (Tasks['retry_run'].output.data | default('')) else ':x: Re-run was approved but the GitHub API call failed — the integration may be missing `actions: write`. Output: ' ~ (Tasks['retry_run'].output.data | default('(none)')) }}"
