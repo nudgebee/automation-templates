@@ -14,6 +14,12 @@
 - slug: delete_failed_kubernetes_job
   path: templates/delete_failed_kubernetes_job.yaml
   sha256: f3d2430fab2010c8db52d65f364e518ec9c210a23b1f649620ecff0ec81133be
+- slug: diagnose_postgresql_on_ec2
+  path: templates/diagnose_postgresql_on_ec2.yaml
+  sha256: 7890626dfaab11390523d4ffd383e0b4fa3e9f967b2702750b6629433b1191ef
+- slug: ec2_host_diagnostics
+  path: templates/ec2_host_diagnostics.yaml
+  sha256: 98980e8ef3ba2015a626dd3737b9fcd33879903f4eb0eaecb88f1b27dde1f2b4
 - slug: expand_azure_managed_disk
   path: templates/expand_azure_managed_disk.yaml
   sha256: b3e0524fca21b12e6d0f421c0939e93e13728df0ecc36601b968b3e64eb035a6

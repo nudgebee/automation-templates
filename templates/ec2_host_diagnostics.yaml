@@ -1,0 +1,202 @@
+slug: ec2_host_diagnostics
+name: "EC2 Host Diagnostics"
+description: "Inspect a running EC2 instance from the inside over AWS SSM. Returns live host state — processes, CPU/memory consumers, disk, network connections, services, logins, shell history, cron jobs, timers, package changes, system logs — for questions CloudWatch metrics cannot answer. Read-only."
+category: "aws"
+icon: "terminal"
+status: ACTIVE
+tags:
+  labels:
+    - "diagnostic"
+    - "read-only"
+  event_sources:
+    - "aws"
+    - "cloudwatch"
+  subject_types:
+    - "compute-instance"
+definition:
+  version: "v1"
+  llm_description: |-
+    Inspects a running EC2 instance from the inside, over AWS SSM, and returns live host state: processes, CPU and memory consumers, disk usage, network connections, services, logins, shell history, cron jobs, systemd timers, package changes and system logs.
+
+    Use when a host-level question cannot be answered from CloudWatch metrics alone - for example: what process is using the CPU or memory right now, why is the disk filling up, what is listening on a port, did someone log in and run something, is a cron job or timer responsible, which service failed, or what changed on this box recently.
+
+    Set 'action' to choose what to look at; use action=triage first if you are not yet sure (it returns load, top CPU and memory processes, disk and boot time in one call), then re-run with a specific action to go deeper. The instance must be SSM-managed and online.
+
+    Read-only: every action runs inspection commands only. The optional custom action accepts a single read-only command from a fixed allow-list and rejects command chaining, redirection and anything that could modify the host.
+  inputs:
+    - id: "account_id"
+      type: "account"
+      description: "Cloud account owning the instance."
+      required: true
+    - id: "instance_id"
+      type: "string"
+      description: "EC2 instance id to inspect, e.g. i-0123456789abcdef0. Must be SSM-managed and online."
+      required: true
+    - id: "region"
+      type: "string"
+      default: "us-east-1"
+      description: "AWS region of the instance."
+    - id: "action"
+      type: "string"
+      default: "triage"
+      description: "What to inspect on the host. One of: triage (load, top CPU+memory processes, disk, uptime - use this first), top_cpu, top_memory, disk_usage, memory_usage, network_connections, running_services, failed_services, recent_logins, shell_history, cron_jobs, recent_syslog, process_tree, boot_time, package_changes, custom. Use 'triage' unless you already know exactly what you need."
+    - id: "custom_command"
+      type: "string"
+      default: ""
+      description: "Only used when action=custom. A single read-only shell command. Must start with an allowed inspection binary (ps, top, free, df, du, uptime, uname, cat, tail, head, grep, journalctl, systemctl, ss, netstat, last, who, w, lsof, ls, stat, crontab, rpm, dpkg, docker). Command chaining and redirection are rejected."
+  triggers:
+    - type: "manual"
+      params: {}
+  tasks:
+    # Runs over AWS SSM, so the instance needs the SSM agent running and an
+    # instance profile granting ssm:SendCommand — no SSH or inbound port needed.
+    - id: "inspect-host"
+      type: "scripting.run_script"
+      params:
+        executor_type: "aws_ssm"
+        language: "bash"
+        account_id: "{{ Inputs.account_id }}"
+        region: "{{ Inputs.region }}"
+        target_id: "{{ Inputs.instance_id }}"
+        env:
+          ACTION: "{{ Inputs.action }}"
+          CUSTOM_CMD: "{{ Inputs.custom_command }}"
+        script: |
+          #!/bin/bash
+          set -o pipefail
+          ACTION="${ACTION:-triage}"
+
+          hr() { echo; echo "===== $1 ====="; }
+
+          run_custom() {
+            local cmd="$CUSTOM_CMD"
+            if [ -z "$cmd" ]; then echo "ERROR: action=custom but custom_command is empty"; exit 2; fi
+            case "$cmd" in
+              *\;*|*\&*|*\|*|*\>*|*\<*|*\`*|*'$('*) echo "REJECTED: command chaining/redirection not permitted: $cmd"; exit 3;;
+            esac
+            local bin
+            bin=$(echo "$cmd" | awk '{print $1}')
+            case "$bin" in
+              ps|top|free|df|du|uptime|uname|cat|tail|head|grep|journalctl|systemctl|ss|netstat|last|who|w|lsof|ls|stat|crontab|rpm|dpkg|docker) ;;
+              *) echo "REJECTED: '$bin' is not an allowed read-only inspection command"; exit 3;;
+            esac
+            hr "custom: $cmd"
+            eval "$cmd" 2>&1 | head -200
+          }
+
+          case "$ACTION" in
+            triage)
+              hr "uptime / load"; uptime
+              hr "top 10 by CPU"; ps -eo pid,ppid,user,pcpu,pmem,etime,lstart,cmd --sort=-pcpu 2>/dev/null | head -11
+              hr "top 10 by memory"; ps -eo pid,ppid,user,pcpu,pmem,etime,cmd --sort=-pmem 2>/dev/null | head -11
+              hr "memory"; free -m 2>/dev/null
+              hr "disk"; df -hP 2>/dev/null
+              hr "boot time"; who -b 2>/dev/null; uptime -s 2>/dev/null
+              ;;
+            top_cpu)
+              hr "top 20 by CPU"; ps -eo pid,ppid,user,pcpu,pmem,etime,lstart,cmd --sort=-pcpu 2>/dev/null | head -21 ;;
+            top_memory)
+              hr "top 20 by memory"; ps -eo pid,ppid,user,pcpu,pmem,etime,lstart,cmd --sort=-pmem 2>/dev/null | head -21 ;;
+            disk_usage)
+              hr "filesystems"; df -hP 2>/dev/null
+              hr "largest dirs under /var"; du -xh --max-depth=2 /var 2>/dev/null | sort -rh | head -20 ;;
+            memory_usage)
+              hr "free"; free -m 2>/dev/null
+              hr "meminfo"; head -20 /proc/meminfo 2>/dev/null ;;
+            network_connections)
+              hr "listening"; ss -tulpn 2>/dev/null | head -60
+              hr "established"; ss -tnp state established 2>/dev/null | head -60 ;;
+            running_services)
+              hr "running units"; systemctl list-units --type=service --state=running --no-pager 2>/dev/null | head -60 ;;
+            failed_services)
+              hr "failed units"; systemctl --failed --no-pager 2>/dev/null ;;
+            recent_logins)
+              hr "last logins"; last -a -n 40 2>/dev/null
+              hr "currently logged in"; w 2>/dev/null ;;
+            shell_history)
+              hr "shell history (all users, most recent 100)"
+              for f in /root/.bash_history /home/*/.bash_history; do
+                [ -r "$f" ] || continue
+                echo "--- $f"; tail -100 "$f" 2>/dev/null
+              done ;;
+            cron_jobs)
+              hr "system crontab"; cat /etc/crontab 2>/dev/null
+              hr "cron.d"; ls -la /etc/cron.d 2>/dev/null
+              hr "per-user crontabs"
+              for u in $(cut -d: -f1 /etc/passwd 2>/dev/null); do
+                out=$(crontab -l -u "$u" 2>/dev/null); [ -n "$out" ] && { echo "--- $u"; echo "$out"; }
+              done
+              hr "systemd timers"; systemctl list-timers --all --no-pager 2>/dev/null | head -30 ;;
+            recent_syslog)
+              hr "last 200 journal lines (priority warning+)"; journalctl -p warning -n 200 --no-pager 2>/dev/null ;;
+            process_tree)
+              hr "process tree"; ps -ejH -o pid,ppid,user,pcpu,etime,cmd 2>/dev/null | head -120 ;;
+            boot_time)
+              hr "boot"; who -b 2>/dev/null; uptime -s 2>/dev/null; uptime ;;
+            package_changes)
+              hr "recent package activity"
+              if command -v rpm >/dev/null 2>&1; then rpm -qa --last 2>/dev/null | head -40; fi
+              if command -v dpkg >/dev/null 2>&1; then grep -h ' install \| upgrade ' /var/log/dpkg.log 2>/dev/null | tail -40; fi ;;
+            custom)
+              run_custom ;;
+            *)
+              echo "ERROR: unknown action '$ACTION'. Valid: triage, top_cpu, top_memory, disk_usage, memory_usage, network_connections, running_services, failed_services, recent_logins, shell_history, cron_jobs, recent_syslog, process_tree, boot_time, package_changes, custom"
+              exit 2 ;;
+          esac
+
+    - id: "report"
+      type: "core.print"
+      params:
+        message: |-
+          Host inspection: {{ Inputs.instance_id }} ({{ Inputs.region }})
+          Action: {{ Inputs.action }}
+
+          {{ Tasks['inspect-host'].output.data }}
+      depends_on:
+        - "inspect-host"
+  retry_policy:
+    maximum_attempts: 3
+    initial_interval: "1s"
+    maximum_interval: "1m"
+    backoff_coefficient: 2
+  timeout: "5m"
+template_variables:
+  - id: "account_id"
+    input_ref: "account_id"
+    display_name: "Cloud account"
+    help_text: "AWS account that owns the instance."
+    required: true
+  - id: "instance_id"
+    input_ref: "instance_id"
+    display_name: "EC2 instance id"
+    placeholder: "i-0123456789abcdef0"
+    required: true
+  - id: "region"
+    input_ref: "region"
+    display_name: "AWS region"
+    placeholder: "us-east-1"
+  - id: "action"
+    input_ref: "action"
+    display_name: "Inspection"
+    help_text: "Start with triage, then re-run with a specific action to go deeper."
+    options:
+      - "triage"
+      - "top_cpu"
+      - "top_memory"
+      - "disk_usage"
+      - "memory_usage"
+      - "network_connections"
+      - "running_services"
+      - "failed_services"
+      - "recent_logins"
+      - "shell_history"
+      - "cron_jobs"
+      - "recent_syslog"
+      - "process_tree"
+      - "boot_time"
+      - "package_changes"
+      - "custom"
+  - id: "custom_command"
+    input_ref: "custom_command"
+    display_name: "Custom command"
+    help_text: "Only used when action=custom. Single read-only command from the allow-list."

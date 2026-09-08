@@ -43,7 +43,7 @@ TASK_TYPES = {
     # database
     "dbms.query", "dbms.redis.cli",
     # events / audit
-    "events.store",
+    "events.store", "events.add_evidence",
     # crypto
     "crypto.encode", "crypto.decode", "crypto.hash", "crypto.encrypt", "crypto.decrypt",
     # chat
@@ -51,7 +51,8 @@ TASK_TYPES = {
     # integrations / scripting
     "integrations.http", "integrations.ssh", "scripting.run_script",
     # notifications
-    "notifications.add_reaction", "notifications.create_channel", "notifications.dm",
+    "notifications.add_channel_members", "notifications.add_reaction",
+    "notifications.create_channel", "notifications.dm",
     "notifications.email", "notifications.im", "notifications.read_thread",
     # tickets / incidents
     "tickets.acknowledge", "tickets.add_comment", "tickets.assign", "tickets.create",
