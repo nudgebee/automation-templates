@@ -41,6 +41,7 @@
               "purge",
               "deploy",
               "diagnostic",
+              "notification",
               "ticketing",
               "destructive",
               "disruptive",

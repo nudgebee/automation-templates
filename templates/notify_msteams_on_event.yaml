@@ -1,0 +1,139 @@
+slug: notify_msteams_on_event
+name: "Notify Microsoft Teams"
+description: "Post an event to a Microsoft Teams channel as an Adaptive Card — title, priority, subject, cluster, namespace, source, a trimmed root-cause summary, and a button that opens the full investigation. Fires on high-scoring events, on failed investigations, or manually."
+category: "general"
+icon: "notifications"
+status: ACTIVE
+tags:
+  labels:
+    - "notification"
+  event_sources:
+    - "prometheus"
+    - "alertmanager"
+    - "cloudwatch"
+    - "azure_monitor"
+    - "gcp_monitoring"
+    - "kubernetes"
+definition:
+  version: "v1"
+  llm_description: "Posts a Nudgebee event to Microsoft Teams as an Adaptive Card with its root cause and a deep link back to the investigation. Use when someone asks to be told about an event in Teams, or to notify a channel about a finding."
+  inputs:
+    # Teams Workflows generates this URL with a signature embedded in the query
+    # string, so it IS the credential — anyone holding it can post to the channel.
+    # It has no default on purpose: paste your own, and rotate it in Power Automate
+    # if it ever leaks.
+    - id: "webhook_url"
+      type: "string"
+      description: "Microsoft Teams incoming webhook URL, from the Teams Workflows connector. Treat as a secret."
+      required: true
+    - id: "app_base_url"
+      type: "string"
+      description: "Base URL of your Nudgebee instance, used for the 'View full investigation' button. No trailing slash."
+      required: true
+    # Engine-injected on event-triggered runs. The default below is only used for
+    # manual runs, so the card can be exercised end-to-end without waiting for a
+    # real event; the quote and backslash are deliberate, they prove the card's
+    # JSON escaping holds.
+    - id: "event"
+      type: "object"
+      description: "Triggering event. Supplied by the engine on an event-triggered run; the sample below is used on a manual run."
+      default:
+        id: "00000000-0000-0000-0000-000000000000"
+        cloud_account_id: "00000000-0000-0000-0000-000000000000"
+        event_type: "ManualTest"
+        title: "Manual test notification"
+        description: "Manual run. Quotes \" and \\ backslashes included to prove escaping."
+        priority: "HIGH"
+        cluster: "example-cluster"
+        subject_namespace: "default"
+        subject_name: "sample-pod"
+        analysis_summary: "Sample RCA text."
+  triggers:
+    - type: "manual"
+      params: {}
+    # Any newly created event scoring above 10. Raise the threshold to make the
+    # channel quieter; `computed_score` is Nudgebee's own severity ranking.
+    - type: "event"
+      params:
+        "on": "event.created"
+        filter: '{{ (event.computed_score | default(0) | int) > 10 }}'
+    # A second, higher bar for investigations that failed outright — those are
+    # worth interrupting someone for even though no root cause got produced.
+    - type: "event"
+      params:
+        "on": "investigation.failed"
+        filter: '{{ (event.computed_score | default(0) | int) > 50 }}'
+  tasks:
+    # Adaptive Cards have no markdown renderer worth relying on and the card gets
+    # unreadable past a few lines, so the RCA is reduced to one plain-text
+    # paragraph capped at 380 characters. Continues on failure: a missing summary
+    # must still produce a card.
+    - id: "extract_cause"
+      type: "data.transform"
+      timeout: "30s"
+      params:
+        scriptType: "javascript"
+        inputType: "json"
+        outputType: "string"
+        input: '{{ event.analysis_summary | default("", true) | to_json }}'
+        expression: |
+          (function(){
+            var s = String(data || "");
+            var m = s.match(/###[^\n]*Quick Investigation[^\n]*\n([\s\S]*?)(?=\n#{2,3}\s|$)/);
+            if(!m) m = s.match(/#{2,3}[^\n]*(?:Causality Chain|Root Cause)[^\n]*\n([\s\S]*?)(?=\n#{2,3}\s|$)/);
+            var t;
+            if(m){ t = m[1]; }
+            else {
+              t = s.replace(/#{2,3}[^\n]*Event (Summary|Details)[^\n]*\n(?:[-*][^\n]*\n)*/, "");
+            }
+            t = t.replace(/```[\s\S]*?```/g, " ")
+                 .replace(/`/g, "")
+                 .replace(/^#{1,6}\s*/gm, "")
+                 .replace(/^\s*[-*]\s+/gm, "• ")
+                 .replace(/---/g, "")
+                 .replace(/\n{2,}/g, "\n")
+                 .replace(/[ \t]{2,}/g, " ")
+                 .trim();
+            if(t.length > 380){ t = t.slice(0,380).replace(/\s+\S*$/, "") + "…"; }
+            return t || "No investigation summary available.";
+          })()
+      failure_policy:
+        action: "continue"
+        retry:
+          maximum_attempts: 1
+
+    # Every interpolated value goes through `| to_json`, which emits the
+    # surrounding quotes as well as escaping them — that is why the template reads
+    # `"text":{{ ... }}` with no quotes of its own. Dropping a `to_json` produces
+    # invalid JSON the moment an event title contains an apostrophe.
+    - id: "post_to_teams"
+      type: "integrations.http"
+      timeout: "30s"
+      params:
+        method: "POST"
+        url: "{{ Inputs.webhook_url }}"
+        timeout: "30s"
+        headers:
+          Content-Type: "application/json"
+        body: |-
+          {"type":"message","attachments":[{"contentType":"application/vnd.microsoft.card.adaptive","contentUrl":null,"content":{"$schema":"http://adaptivecards.io/schemas/adaptive-card.json","type":"AdaptiveCard","version":"1.4","body":[{"type":"TextBlock","text":{{ event.title | default("NudgeBee event", true) | to_json }},"weight":"Bolder","size":"Medium","wrap":true},{"type":"TextBlock","spacing":"None","isSubtle":true,"size":"Small","wrap":true,"text":{{ ((event.priority | default("n/a", true)) ~ "  ·  " ~ (event.subject_type | default("n/a", true)) ~ "/" ~ (event.subject_name | default("n/a", true))) | to_json }}},{"type":"FactSet","spacing":"Medium","facts":[{"title":"Cluster","value":{{ event.cluster | default("n/a", true) | to_json }}},{"title":"Namespace","value":{{ event.subject_namespace | default("n/a", true) | to_json }}},{"title":"Source","value":{{ event.source | default("n/a", true) | to_json }}}]},{"type":"TextBlock","text":"Root cause","weight":"Bolder","size":"Small","spacing":"Medium","separator":true},{"type":"TextBlock","spacing":"Small","wrap":true,"text":{% set o = Tasks['extract_cause'].output %}{% if o %}{% if o.data %}{{ o.data | to_json }}{% else %}"No investigation summary available yet \u2014 open the full investigation in NudgeBee."{% endif %}{% else %}"No investigation summary available yet \u2014 open the full investigation in NudgeBee."{% endif %}}],"actions":[{"type":"Action.OpenUrl","title":"View full investigation","url":{{ (Inputs.app_base_url ~ "/investigate?id=" ~ (event.id | default("", true)) ~ "&accountId=" ~ (event.cloud_account_id | default("", true))) | to_json }}}]}}]}
+      depends_on:
+        - "extract_cause"
+  retry_policy:
+    maximum_attempts: 3
+    initial_interval: "1s"
+    maximum_interval: "1m"
+    backoff_coefficient: 2
+  timeout: "5m"
+template_variables:
+  - id: "webhook_url"
+    input_ref: "webhook_url"
+    display_name: "Teams webhook URL"
+    help_text: "Teams > channel > Workflows > 'Post to a channel when a webhook request is received'. Copy the generated URL."
+    placeholder: "https://prod-00.westus.logic.azure.com:443/workflows/.../triggers/manual/paths/invoke?..."
+    required: true
+  - id: "app_base_url"
+    input_ref: "app_base_url"
+    display_name: "Nudgebee base URL"
+    placeholder: "https://app.nudgebee.com"
+    required: true
