@@ -1,0 +1,296 @@
+slug: diagnose_postgresql_on_ec2
+name: "Diagnose PostgreSQL on EC2"
+description: "Read-only six-category health sweep of a self-managed PostgreSQL server: connectivity, connection pressure, blocking chains, replication lag, storage/WAL, and error counters. Attaches the result as evidence on the triggering event."
+category: "aws"
+icon: "database"
+status: ACTIVE
+tags:
+  labels:
+    - "diagnostic"
+    - "read-only"
+  event_sources:
+    - "aws"
+    - "cloudwatch"
+    - "AWS_CloudWatch_Alarm"
+  alert_names:
+    - "pg_up"
+    - "pg_connections_pct"
+    - "pg_blocked_sessions"
+  subject_types:
+    - "compute-instance"
+definition:
+  version: "v1"
+  llm_description: "Deterministic six-category diagnostic for a self-managed PostgreSQL host on EC2. Use when a PostgreSQL server is unreachable, saturating connections, showing blocked sessions, or lagging in replication."
+  inputs:
+    - id: "integration_name"
+      type: "string"
+      description: "Database integration to query. Accepts the integration name or its id; must be a postgresql integration."
+      required: true
+    - id: "event_id"
+      type: "string"
+      default: ""
+      description: "Event to attach the diagnostics to on a manual run. Leave empty on an event-triggered run — the triggering event is used."
+  triggers:
+    # Fires on CloudWatch alarms raised against a compute instance for the three
+    # PostgreSQL metrics below. Edit the filter for your own metric names, or for a
+    # non-AWS event source (drop the `aws_event_*` labels and match on your own).
+    - type: "event"
+      params:
+        on: "event.created"
+        filter: '{{ event.subject_type == "compute-instance" and event.labels.aws_event_state == "ALARM" and event.labels.aws_event_metric_name in ["pg_up", "pg_connections_pct", "pg_blocked_sessions"] }}'
+    - type: "manual"
+      params: {}
+  tasks:
+    # All six checks are independent and read-only, so they fan out in parallel and
+    # each continues on failure — a permission-denied on one view must not hide the
+    # other five results from the evidence block.
+    - id: "check_connectivity"
+      type: "dbms.query"
+      params:
+        dbms_type: "postgresql"
+        integration_id: "{{ Inputs.integration_name }}"
+        command: |-
+          SELECT 1 AS ok,
+                 current_database()                       AS database,
+                 current_user                             AS connected_as,
+                 pg_is_in_recovery()                      AS in_recovery,
+                 pg_postmaster_start_time()               AS started_at,
+                 date_trunc('second', now() - pg_postmaster_start_time()) AS uptime,
+                 substring(version() from 'PostgreSQL [0-9.]+') AS server_version,
+                 pg_has_role(current_user, 'pg_monitor', 'member') AS has_pg_monitor
+      failure_policy:
+        action: "continue"
+
+    - id: "check_resource_utilisation"
+      type: "dbms.query"
+      params:
+        dbms_type: "postgresql"
+        integration_id: "{{ Inputs.integration_name }}"
+        command: |-
+          SELECT (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') AS max_connections,
+                 count(*)                                                        AS total_connections,
+                 count(*) FILTER (WHERE state = 'active')                        AS active,
+                 count(*) FILTER (WHERE state = 'idle')                          AS idle,
+                 count(*) FILTER (WHERE state = 'idle in transaction')           AS idle_in_transaction,
+                 count(*) FILTER (WHERE wait_event_type = 'Lock')                AS waiting_on_lock,
+                 round(100.0 * count(*)
+                       / (SELECT setting::numeric FROM pg_settings WHERE name = 'max_connections'), 1)
+                                                                                 AS pct_of_max
+          FROM pg_stat_activity
+      failure_policy:
+        action: "continue"
+
+    - id: "check_blocking_sessions"
+      type: "dbms.query"
+      params:
+        dbms_type: "postgresql"
+        integration_id: "{{ Inputs.integration_name }}"
+        command: |-
+          SELECT pid,
+                 usename                                   AS username,
+                 application_name,
+                 client_addr,
+                 state,
+                 wait_event_type,
+                 wait_event,
+                 date_trunc('second', now() - xact_start)  AS transaction_age,
+                 date_trunc('second', now() - query_start) AS query_age,
+                 cardinality(pg_blocking_pids(pid))        AS blocker_count,
+                 pg_blocking_pids(pid)                     AS blocked_by,
+                 left(regexp_replace(query, '\s+', ' ', 'g'), 200) AS query
+          FROM pg_stat_activity
+          WHERE pid <> pg_backend_pid()
+            AND state <> 'idle'
+            AND (now() - query_start > interval '30 seconds'
+                 OR cardinality(pg_blocking_pids(pid)) > 0)
+          ORDER BY blocker_count DESC, query_age DESC NULLS LAST
+          LIMIT 20
+      failure_policy:
+        action: "continue"
+
+    - id: "check_replication"
+      type: "dbms.query"
+      params:
+        dbms_type: "postgresql"
+        integration_id: "{{ Inputs.integration_name }}"
+        command: |-
+          SELECT pg_is_in_recovery() AS is_replica,
+                 (SELECT count(*) FROM pg_stat_replication)                    AS connected_standbys,
+                 (SELECT count(*) FROM pg_replication_slots WHERE NOT active)  AS inactive_slots,
+                 (SELECT coalesce(max(round(EXTRACT(epoch FROM write_lag)::numeric, 2)), 0)
+                    FROM pg_stat_replication)                                  AS max_write_lag_s,
+                 (SELECT coalesce(max(round(EXTRACT(epoch FROM replay_lag)::numeric, 2)), 0)
+                    FROM pg_stat_replication)                                  AS max_replay_lag_s,
+                 CASE WHEN pg_is_in_recovery()
+                      THEN round(EXTRACT(epoch FROM (now() - pg_last_xact_replay_timestamp()))::numeric, 2)
+                 END                                                           AS replica_lag_s
+      failure_policy:
+        action: "continue"
+
+    - id: "check_storage"
+      type: "dbms.query"
+      params:
+        dbms_type: "postgresql"
+        integration_id: "{{ Inputs.integration_name }}"
+        command: |-
+          SELECT current_setting('data_directory')                      AS data_directory,
+                 pg_size_pretty(pg_database_size(current_database()))    AS database_size,
+                 pg_database_size(current_database())                    AS database_size_bytes,
+                 (SELECT count(*) FROM pg_ls_waldir())                   AS wal_file_count,
+                 (SELECT pg_size_pretty(coalesce(sum(size), 0)) FROM pg_ls_waldir()) AS wal_size,
+                 current_setting('max_wal_size')                         AS max_wal_size,
+                 (SELECT string_agg(t, ', ' ORDER BY t)
+                    FROM (SELECT quote_ident(n.nspname) || '.' || quote_ident(c.relname)
+                                 || ' (' || pg_size_pretty(c.relpages::bigint
+                                          * current_setting('block_size')::bigint)
+                                 || ', estimated)' AS t
+                          FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+                          WHERE c.relkind IN ('r','m')
+                            AND n.nspname NOT IN ('pg_catalog','information_schema')
+                          ORDER BY c.relpages DESC
+                          LIMIT 5) s)                                    AS largest_tables
+      failure_policy:
+        action: "continue"
+
+    - id: "check_database_errors"
+      type: "dbms.query"
+      params:
+        dbms_type: "postgresql"
+        integration_id: "{{ Inputs.integration_name }}"
+        command: |-
+          SELECT datname                                   AS database,
+                 xact_commit,
+                 xact_rollback,
+                 deadlocks,
+                 conflicts,
+                 temp_files,
+                 pg_size_pretty(temp_bytes)                AS temp_bytes,
+                 blks_read,
+                 blks_hit,
+                 round(100.0 * blks_hit / nullif(blks_hit + blks_read, 0), 2) AS cache_hit_pct,
+                 round(100.0 * xact_rollback / nullif(xact_commit + xact_rollback, 0), 2) AS rollback_pct,
+                 stats_reset
+          FROM pg_stat_database
+          WHERE datname = current_database()
+      failure_policy:
+        action: "continue"
+
+    # Skipped entirely on a manual run with no event to attach to. `Inputs.event`
+    # is not declared above on purpose: the engine injects it on event-triggered
+    # runs only, so its presence is what distinguishes the two paths.
+    - id: "attach_evidence"
+      type: "events.add_evidence"
+      if: "{% if Inputs.event_id or Inputs.event %}true{% else %}false{% endif %}"
+      params:
+        event_id: "{% if Inputs.event_id %}{{ Inputs.event_id }}{% else %}{{ Inputs.event.id }}{% endif %}"
+        evidences:
+          - type: "markdown"
+            title: "Connectivity and server identity"
+            insight: []
+            additional_info:
+              action_name: "db_diagnostics"
+              actual_action_name: "text_enricher"
+              title: "Connectivity and server identity"
+            data: |
+              ### Connectivity and server identity — {{ Inputs.integration_name }}
+
+              Server identity, uptime, recovery state and whether the connected role can read the monitoring views.
+
+              ```json
+              {{ Tasks.check_connectivity.output.data | default('(check failed)') }}
+              ```
+          - type: "markdown"
+            title: "Connection pressure and session mix"
+            insight: []
+            additional_info:
+              action_name: "db_diagnostics"
+              actual_action_name: "text_enricher"
+              title: "Connection pressure and session mix"
+            data: |
+              ### Connection pressure and session mix — {{ Inputs.integration_name }}
+
+              Connection count against max_connections, split by state, plus sessions waiting on a lock.
+
+              ```json
+              {{ Tasks.check_resource_utilisation.output.data | default('(check failed)') }}
+              ```
+          - type: "markdown"
+            title: "Blocking chains and long-running queries"
+            insight: []
+            additional_info:
+              action_name: "db_diagnostics"
+              actual_action_name: "text_enricher"
+              title: "Blocking chains and long-running queries"
+            data: |
+              ### Blocking chains and long-running queries — {{ Inputs.integration_name }}
+
+              Non-idle sessions older than 30s or blocked by another backend, with their blockers.
+
+              ```json
+              {{ Tasks.check_blocking_sessions.output.data | default('(check failed)') }}
+              ```
+          - type: "markdown"
+            title: "Replication role and lag"
+            insight: []
+            additional_info:
+              action_name: "db_diagnostics"
+              actual_action_name: "text_enricher"
+              title: "Replication role and lag"
+            data: |
+              ### Replication role and lag — {{ Inputs.integration_name }}
+
+              Primary or replica, connected standbys, inactive slots, write and replay lag.
+
+              ```json
+              {{ Tasks.check_replication.output.data | default('(check failed)') }}
+              ```
+          - type: "markdown"
+            title: "Storage, WAL and largest relations"
+            insight: []
+            additional_info:
+              action_name: "db_diagnostics"
+              actual_action_name: "text_enricher"
+              title: "Storage, WAL and largest relations"
+            data: |
+              ### Storage, WAL and largest relations — {{ Inputs.integration_name }}
+
+              Database size, WAL file count and size against max_wal_size, and the five largest relations.
+
+              ```json
+              {{ Tasks.check_storage.output.data | default('(check failed)') }}
+              ```
+          - type: "markdown"
+            title: "Error, deadlock and contention counters"
+            insight: []
+            additional_info:
+              action_name: "db_diagnostics"
+              actual_action_name: "text_enricher"
+              title: "Error, deadlock and contention counters"
+            data: |
+              ### Error, deadlock and contention counters — {{ Inputs.integration_name }}
+
+              Commits vs rollbacks, deadlocks, conflicts, temp file spill and cache hit ratio since the last stats reset.
+
+              ```json
+              {{ Tasks.check_database_errors.output.data | default('(check failed)') }}
+              ```
+      depends_on:
+        - "check_connectivity"
+        - "check_resource_utilisation"
+        - "check_blocking_sessions"
+        - "check_replication"
+        - "check_storage"
+        - "check_database_errors"
+  retry_policy:
+    maximum_attempts: 3
+    initial_interval: "1s"
+    maximum_interval: "1m"
+    backoff_coefficient: 2
+  timeout: "5m"
+template_variables:
+  - id: "integration_name"
+    input_ref: "integration_name"
+    display_name: "PostgreSQL integration"
+    help_text: "Name (or id) of the postgresql database integration this runbook queries."
+    placeholder: "prod-postgres"
+    required: true
