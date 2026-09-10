@@ -11,12 +11,15 @@
 - slug: create_ticket_from_event
   path: templates/create_ticket_from_event.yaml
   sha256: fa3366bdb77b48f436d1ef2edafde1058231bfa36ca42ceaf7ac48c98e175629
+- slug: declare_incident_on_high_triage
+  path: templates/declare_incident_on_high_triage.yaml
+  sha256: 0e6c1d719ae035d9bb21866aa7546e285725bb4f282ecf1f055b8a12437a5963
 - slug: delete_failed_kubernetes_job
   path: templates/delete_failed_kubernetes_job.yaml
   sha256: f3d2430fab2010c8db52d65f364e518ec9c210a23b1f649620ecff0ec81133be
 - slug: diagnose_postgresql_on_ec2
   path: templates/diagnose_postgresql_on_ec2.yaml
-  sha256: 7890626dfaab11390523d4ffd383e0b4fa3e9f967b2702750b6629433b1191ef
+  sha256: fa9ab3516cab4c7f56a8f266c9a1050ca83c3e306ad468c7ab4a11da6d85d356
 - slug: ec2_host_diagnostics
   path: templates/ec2_host_diagnostics.yaml
   sha256: 98980e8ef3ba2015a626dd3737b9fcd33879903f4eb0eaecb88f1b27dde1f2b4
@@ -32,9 +35,15 @@
 - slug: force_ecs_service_deployment
   path: templates/force_ecs_service_deployment.yaml
   sha256: 4668241102b0a8557e92fb5b658f6ba7de1a4788af2357b11ca35a062b8c541e
+- slug: ingest_pagerduty_incidents
+  path: templates/ingest_pagerduty_incidents.yaml
+  sha256: 9ff5e2fd81e62dd6b3f84b418c136f49d9aac04535a1f776433d6a0276b8e705
 - slug: investigate_rds_performance
   path: templates/investigate_rds_performance.yaml
   sha256: 4600e13bec5b1a17604f91ce90a169db0eb1c8bd8ddb4839ee602e7173011372
+- slug: notify_msteams_on_event
+  path: templates/notify_msteams_on_event.yaml
+  sha256: 91c9f688028c29296567357f330b7c0a35fcfdc47fbde2675300d1f4c90ee87a
 - slug: patch_container_resource_limits
   path: templates/patch_container_resource_limits.yaml
   sha256: 96420291adfe678e7def3442e464141927e8e524f8355a78d69932ca85aa1fe8

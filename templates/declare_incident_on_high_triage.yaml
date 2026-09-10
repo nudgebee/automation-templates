@@ -1,0 +1,241 @@
+slug: declare_incident_on_high_triage
+name: "Declare Incident on High Triage Score"
+description: "Open a dedicated Slack incident channel for any event scoring above the triage threshold, run an AI investigation, post the findings and page the day's on-call responder, then log the incident under a single daily triage thread. Deduplicated per event fingerprint, so a repeating alert reuses its channel instead of opening a second one."
+category: "general"
+icon: "crisis_alert"
+status: ACTIVE
+tags:
+  labels:
+    - "notification"
+  event_sources:
+    - "prometheus"
+    - "alertmanager"
+    - "kubernetes"
+    - "cloudwatch"
+    - "azure_monitor"
+    - "gcp_monitoring"
+definition:
+  version: "v1"
+  llm_description: "Declares an incident for a high-scoring event: creates a Slack channel named after the event, investigates it, posts the root cause and mentions the on-call responder for today, and files a line under the daily triage thread."
+  inputs:
+    - id: "app_base_url"
+      type: "string"
+      description: "Base URL of your Nudgebee instance, used for the investigation deep links. No trailing slash."
+      required: true
+    - id: "triage_channel"
+      type: "string"
+      description: "Slack channel ID holding the daily triage thread, e.g. C01ABCDEFGH. Every incident is logged there as one threaded reply."
+      required: true
+    # One responder per weekday. The message looks the rota up by today's weekday
+    # name, so these ids MUST stay named oncall_<lowercase weekday>. An empty value
+    # is handled: the incident post says nobody is on call that day.
+    - id: "oncall_monday"
+      type: "string"
+      default: ""
+      description: "Slack member ID of the Monday on-call responder, e.g. U01ABCDEFGH. Leave empty if nobody is on call that day."
+    - id: "oncall_tuesday"
+      type: "string"
+      default: ""
+      description: "Slack member ID of the Tuesday on-call responder, e.g. U01ABCDEFGH. Leave empty if nobody is on call that day."
+    - id: "oncall_wednesday"
+      type: "string"
+      default: ""
+      description: "Slack member ID of the Wednesday on-call responder, e.g. U01ABCDEFGH. Leave empty if nobody is on call that day."
+    - id: "oncall_thursday"
+      type: "string"
+      default: ""
+      description: "Slack member ID of the Thursday on-call responder, e.g. U01ABCDEFGH. Leave empty if nobody is on call that day."
+    - id: "oncall_friday"
+      type: "string"
+      default: ""
+      description: "Slack member ID of the Friday on-call responder, e.g. U01ABCDEFGH. Leave empty if nobody is on call that day."
+    - id: "oncall_saturday"
+      type: "string"
+      default: ""
+      description: "Slack member ID of the Saturday on-call responder, e.g. U01ABCDEFGH. Leave empty if nobody is on call that day."
+    - id: "oncall_sunday"
+      type: "string"
+      default: ""
+      description: "Slack member ID of the Sunday on-call responder, e.g. U01ABCDEFGH. Leave empty if nobody is on call that day."
+  triggers:
+    # Only events Nudgebee scores above 60 are worth waking someone for. Raise the
+    # threshold if the incident channel gets noisy — this is the one number to tune.
+    - type: "event"
+      params:
+        "on": "event.created"
+        filter: '{{ (event.computed_score | default(0) | int) > 60 }}'
+  tasks:
+    # Runs on the server, not on a customer host, purely to get today's date and
+    # weekday in the server's timezone. parser_type json makes the two fields
+    # available as .output.data.date / .output.data.weekday.
+    - id: "get-current-date"
+      type: "scripting.run_script"
+      params:
+        language: "python"
+        os_type: "linux"
+        parser_type: "json"
+        script: |-
+          import datetime, json
+          now = datetime.datetime.now()
+          print(json.dumps({'date': now.strftime('%d/%m/%y'), 'weekday': now.strftime('%A')}))
+
+    # Dedupe key is fingerprint + subject, so a flapping alert reuses its channel
+    # rather than opening a new one every time it fires. The channel id is written
+    # to workflow state; every later task reads state first and only falls back to
+    # this task's output on the run that actually created the channel.
+    - id: "create-incident-channel"
+      type: "notifications.create_channel"
+      params:
+        provider: "slack"
+        is_private: false
+        name: 'inc-{{ Inputs.event.id | string | replace(''-'', '''') | truncate(10, True, '''') | lower }}'
+      depends_on:
+        - "get-current-date"
+      if: '{{ State[''inc_'' ~ (Inputs.event.fingerprint | default(''none'')) ~ ''_'' ~ (Inputs.event.subject_name | default(''none'')) ~ ''_'' ~ (Inputs.event.subject_namespace | default(''none''))] == null }}'
+      set_state:
+        'inc_{{ Inputs.event.fingerprint | default(''none'') }}_{{ Inputs.event.subject_name | default(''none'') }}_{{ Inputs.event.subject_namespace | default(''none'') }}': "{{ Self.output.channel }}"
+
+    - id: "join-incident-channel"
+      type: "slack.join_channel"
+      params:
+        bind_account: true
+        bind_session_id: "{{ Inputs.event.fingerprint }}"
+        channel_id: '{% set ch = State[''inc_'' ~ (Inputs.event.fingerprint | default(''none'')) ~ ''_'' ~ (Inputs.event.subject_name | default(''none'')) ~ ''_'' ~ (Inputs.event.subject_namespace | default(''none''))] %}{% if ch %}{{ ch }}{% else %}{{ Tasks[''create-incident-channel''].output.channel }}{% endif %}'
+      depends_on:
+        - "create-incident-channel"
+
+    # Continues on failure: a slow or failed investigation must not stop the
+    # incident being announced. The message below degrades to a link instead.
+    - id: "investigate-event"
+      type: "llm.event_investigate"
+      timeout: "10m"
+      params:
+        account_id: "{{ Inputs.event.cloud_account_id }}"
+        event_id: "{{ Inputs.event.id }}"
+      depends_on:
+        - "join-incident-channel"
+      failure_policy:
+        action: "continue"
+        retry:
+          maximum_attempts: 1
+
+    - id: "post-incident-details"
+      type: "notifications.im"
+      params:
+        provider: "slack"
+        channel: '{% set ch = State[''inc_'' ~ (Inputs.event.fingerprint | default(''none'')) ~ ''_'' ~ (Inputs.event.subject_name | default(''none'')) ~ ''_'' ~ (Inputs.event.subject_namespace | default(''none''))] %}{% if ch %}{{ ch }}{% else %}{{ Tasks[''create-incident-channel''].output.channel }}{% endif %}'
+        message: |-
+          🚨 *New Incident Declared* 🚨
+          *Title:* {{ Inputs.event.title }}
+          *Triage Score:* {{ Inputs.event.computed_score }}
+          *Priority:* {{ Inputs.event.priority }}
+
+          *Description:* 
+          {{ Inputs.event.description }}
+
+          🔗 *Investigate in NudgeBee:* {{ Inputs.app_base_url }}/investigate?id={{ Inputs.event.id }}&accountId={{ Inputs.event.cloud_account_id }}
+
+          *On-Call Responder ({{ Tasks['get-current-date'].output.data.weekday }}):*
+          {% set u = Inputs['oncall_' ~ (Tasks['get-current-date'].output.data.weekday | lower)] %}{% if u %}<@{{ u }}>{% else %}_No on-call configured for {{ Tasks['get-current-date'].output.data.weekday }}_{% endif %}
+          Please acknowledge and begin investigation.
+
+          🤖 *AI Investigation Summary:*
+          {% set inv = Tasks['investigate-event'].output %}{% if inv %}{% if inv.data %}{{ inv.data }}{% else %}_AI investigation did not complete in time — use the link above to investigate in NudgeBee._{% endif %}{% else %}_AI investigation did not complete in time — use the link above to investigate in NudgeBee._{% endif %}
+      depends_on:
+        - "investigate-event"
+
+    # One parent message per calendar date, so every incident that day lands in a
+    # single thread instead of flooding the channel. Guarded by state, so only the
+    # day's first incident creates it.
+    - id: "post-daily-thread-parent"
+      type: "notifications.im"
+      params:
+        provider: "slack"
+        channel: "{{ Inputs.triage_channel }}"
+        message: "Daily Triage {{ Tasks['get-current-date'].output.data.date }}"
+      depends_on:
+        - "post-incident-details"
+      if: "{{ State['daily_triage_thread_' ~ Tasks['get-current-date'].output.data.date] == null }}"
+      set_state:
+        "daily_triage_thread_{{ Tasks['get-current-date'].output.data.date }}": "{{ Self.output.message_id }}"
+
+    # The 48h ttl keeps state from growing forever; the key only needs to outlive
+    # the day it belongs to.
+    - id: "post-to-daily-thread"
+      type: "notifications.im"
+      params:
+        provider: "slack"
+        channel: "{{ Inputs.triage_channel }}"
+        message_thread_id: '{% set th = State[''daily_triage_thread_'' ~ Tasks[''get-current-date''].output.data.date] %}{% if th %}{{ th }}{% else %}{{ Tasks[''post-daily-thread-parent''].output.message_id }}{% endif %}'
+        message: |-
+          New incident declared: <#{% set ch = State['inc_' ~ (Inputs.event.fingerprint | default('none')) ~ '_' ~ (Inputs.event.subject_name | default('none')) ~ '_' ~ (Inputs.event.subject_namespace | default('none'))] %}{% if ch %}{{ ch }}{% else %}{{ Tasks['create-incident-channel'].output.channel }}{% endif %}>
+          Title: {{ Inputs.event.title }}
+          🔗 <{{ Inputs.app_base_url }}/investigate?id={{ Inputs.event.id }}&accountId={{ Inputs.event.cloud_account_id }}|Investigate in NudgeBee>
+          {% set u = Inputs['oncall_' ~ (Tasks['get-current-date'].output.data.weekday | lower)] %}{% if u %}On-call: <@{{ u }}>{% endif %}
+      depends_on:
+        - "post-daily-thread-parent"
+      if: '{{ State[''daily_reply_'' ~ Tasks[''get-current-date''].output.data.date ~ ''_'' ~ (Inputs.event.fingerprint | default(''none'')) ~ ''_'' ~ (Inputs.event.subject_name | default(''none'')) ~ ''_'' ~ (Inputs.event.subject_namespace | default(''none''))] == null }}'
+      set_state:
+        'daily_reply_{{ Tasks[''get-current-date''].output.data.date }}_{{ Inputs.event.fingerprint | default(''none'') }}_{{ Inputs.event.subject_name | default(''none'') }}_{{ Inputs.event.subject_namespace | default(''none'') }}':
+          ttl: "48h"
+          value: "{{ Self.output.message_id }}"
+  retry_policy:
+    maximum_attempts: 3
+    initial_interval: "1s"
+    maximum_interval: "1m"
+    backoff_coefficient: 2
+  timeout: "30m"
+template_variables:
+  - id: "app_base_url"
+    input_ref: "app_base_url"
+    display_name: "Nudgebee base URL"
+    placeholder: "https://app.nudgebee.com"
+    required: true
+  - id: "triage_channel"
+    input_ref: "triage_channel"
+    display_name: "Daily triage channel"
+    help_text: "Slack channel ID, not the name. In Slack: channel → View channel details → the ID at the bottom."
+    placeholder: "C01ABCDEFGH"
+    required: true
+  - id: "oncall_monday"
+    input_ref: "oncall_monday"
+    display_name: "On-call — Monday"
+    help_text: "Slack member ID. In Slack: profile → More → Copy member ID."
+    placeholder: "U01ABCDEFGH"
+    group: "On-call rota"
+  - id: "oncall_tuesday"
+    input_ref: "oncall_tuesday"
+    display_name: "On-call — Tuesday"
+    help_text: "Slack member ID. In Slack: profile → More → Copy member ID."
+    placeholder: "U01ABCDEFGH"
+    group: "On-call rota"
+  - id: "oncall_wednesday"
+    input_ref: "oncall_wednesday"
+    display_name: "On-call — Wednesday"
+    help_text: "Slack member ID. In Slack: profile → More → Copy member ID."
+    placeholder: "U01ABCDEFGH"
+    group: "On-call rota"
+  - id: "oncall_thursday"
+    input_ref: "oncall_thursday"
+    display_name: "On-call — Thursday"
+    help_text: "Slack member ID. In Slack: profile → More → Copy member ID."
+    placeholder: "U01ABCDEFGH"
+    group: "On-call rota"
+  - id: "oncall_friday"
+    input_ref: "oncall_friday"
+    display_name: "On-call — Friday"
+    help_text: "Slack member ID. In Slack: profile → More → Copy member ID."
+    placeholder: "U01ABCDEFGH"
+    group: "On-call rota"
+  - id: "oncall_saturday"
+    input_ref: "oncall_saturday"
+    display_name: "On-call — Saturday"
+    help_text: "Slack member ID. In Slack: profile → More → Copy member ID."
+    placeholder: "U01ABCDEFGH"
+    group: "On-call rota"
+  - id: "oncall_sunday"
+    input_ref: "oncall_sunday"
+    display_name: "On-call — Sunday"
+    help_text: "Slack member ID. In Slack: profile → More → Copy member ID."
+    placeholder: "U01ABCDEFGH"
+    group: "On-call rota"

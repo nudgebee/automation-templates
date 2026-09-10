@@ -36,7 +36,7 @@ definition:
     # non-AWS event source (drop the `aws_event_*` labels and match on your own).
     - type: "event"
       params:
-        on: "event.created"
+        "on": "event.created"
         filter: '{{ event.subject_type == "compute-instance" and event.labels.aws_event_state == "ALARM" and event.labels.aws_event_metric_name in ["pg_up", "pg_connections_pct", "pg_blocked_sessions"] }}'
     - type: "manual"
       params: {}
