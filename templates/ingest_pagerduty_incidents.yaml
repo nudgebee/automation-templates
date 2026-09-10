@@ -1,0 +1,121 @@
+slug: ingest_pagerduty_incidents
+name: "Ingest PagerDuty Incidents"
+description: "Poll the PagerDuty REST API every five minutes for incidents that triggered or resolved, and deliver each one to Nudgebee as an event. Use where PagerDuty cannot push outbound webhooks — the poll pulls instead. Read-only against PagerDuty."
+category: "general"
+icon: "sync"
+status: ACTIVE
+definition:
+  version: "v1"
+  llm_description: "Pulls recently triggered and resolved PagerDuty incidents into Nudgebee as events on a five-minute schedule. Use when PagerDuty is the source of truth for incidents but cannot reach Nudgebee with an outbound webhook."
+  inputs:
+    - id: "pd_base_url"
+      type: "string"
+      default: "https://api.pagerduty.com"
+      description: "PagerDuty REST API base URL. Change only for a non-global PagerDuty region."
+    # This URL carries the ingest token in its query string, so it IS a credential:
+    # anyone holding it can post events into your account. No default on purpose.
+    # Create a webhook integration in Nudgebee and copy the URL it gives you,
+    # including the ?token= part.
+    - id: "nb_webhook_url"
+      type: "string"
+      description: "Nudgebee webhook URL for the target integration, including its ?token= query parameter. Treat as a secret."
+      required: true
+    - id: "lookback"
+      type: "string"
+      default: "-6m"
+      description: "How far back to list incidents on each poll. Keep it just over the cron interval so nothing is missed at the boundary; the overlap re-delivers a few incidents and the event layer dedups them by fingerprint."
+  triggers:
+    # overlap_policy Skip means a slow poll never stacks a second one behind it.
+    # Change the interval and the lookback together — lookback must stay longer.
+    - type: "schedule"
+      params:
+        cron: "*/5 * * * *"
+        overlap_policy: "Skip"
+  tasks:
+    # The API token is read from the server's environment, NOT from an input, so it
+    # never lands in a workflow definition. Set SECRET_pagerduty_api_token on the
+    # runbook-server deployment; a PagerDuty read-only API key is enough.
+    - id: "list-incidents"
+      type: "integrations.http"
+      timeout: "30s"
+      params:
+        method: "GET"
+        url: "{{ Inputs.pd_base_url }}/incidents?statuses[]=triggered&statuses[]=resolved&sort_by=created_at:desc&limit=100&since={{ now() | time_add(Inputs.lookback) | date_format }}"
+        timeout: "30s"
+        headers:
+          Accept: "application/vnd.pagerduty+json;version=2"
+          Authorization: "Token token={{ Secrets.pagerduty_api_token }}"
+          Content-Type: "application/json"
+
+    # Posts one Nudgebee event per incident. The `-{status}` suffix on the event id
+    # is deliberate: a triggered and a resolved delivery for the same incident must
+    # be two distinct events, or the resolution overwrites the alert. Exits non-zero
+    # if any single delivery failed, so a partial poll shows as a failed run.
+    - id: "deliver"
+      type: "scripting.run_script"
+      params:
+        language: "python"
+        os_type: "linux"
+        parser_type: "json"
+        env:
+          INCIDENTS_JSON: "{{ Tasks['list-incidents'].output.body.incidents | to_json }}"
+          WEBHOOK_URL: "{{ Inputs.nb_webhook_url }}"
+        script: |-
+          import json, os, urllib.request, urllib.parse, datetime, sys
+
+          # Both values arrive through the environment, never interpolated into this
+          # source. An incident title containing ''' would otherwise close the raw
+          # string literal and take the whole poll down with a SyntaxError.
+          incidents = json.loads(os.environ.get('INCIDENTS_JSON') or '[]')
+          url = os.environ['WEBHOOK_URL']
+
+          def norm_ts(s):
+              try:
+                  return datetime.datetime.fromisoformat((s or '').replace('Z', '+00:00')).astimezone(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+              except Exception:
+                  return s or ''
+
+          delivered = 0
+          errors = []
+          for i in incidents:
+              status = i.get('status') or 'triggered'
+              et = 'incident.resolved' if status == 'resolved' else 'incident.triggered'
+              pr = i.get('priority') if isinstance(i.get('priority'), dict) else {}
+              svc = i.get('service') if isinstance(i.get('service'), dict) else {}
+              env = {"event": {"id": (str(i.get('id', '')) + '-' + status), "event_type": et, "data": {"id": i.get('id', ''), "type": "incident", "title": i.get('title') or i.get('summary') or '', "description": i.get('description') or i.get('summary') or '', "created_at": norm_ts(i.get('created_at')), "status": status, "urgency": i.get('urgency') or '', "html_url": i.get('html_url') or '', "self": i.get('self') or '', "priority": (pr.get('summary') or ''), "service": {"summary": (svc.get('summary') or '')}}}}
+              data = json.dumps(env).encode('utf-8')
+              req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+              try:
+                  urllib.request.urlopen(req, timeout=30).read()
+                  delivered += 1
+              except Exception as e:
+                  errors.append(str(i.get('id', '')) + ": " + str(e))
+
+          result = {"delivered": delivered, "total": len(incidents), "truncated": len(incidents) >= 100, "errors": errors}
+          print(json.dumps(result))
+          if errors:
+              sys.exit(1)
+      depends_on:
+        - "list-incidents"
+  retry_policy:
+    maximum_attempts: 2
+    initial_interval: "1s"
+    maximum_interval: "30s"
+    backoff_coefficient: 2
+  timeout: "10m"
+template_variables:
+  - id: "nb_webhook_url"
+    input_ref: "nb_webhook_url"
+    display_name: "Nudgebee webhook URL"
+    help_text: "From your webhook integration in Nudgebee. Must include the ?token= parameter."
+    placeholder: "https://<your-nudgebee-host>/api/webhooks/pagerduty?token=..."
+    required: true
+  - id: "pd_base_url"
+    input_ref: "pd_base_url"
+    display_name: "PagerDuty API base URL"
+    placeholder: "https://api.pagerduty.com"
+  - id: "lookback"
+    input_ref: "lookback"
+    display_name: "Lookback window"
+    help_text: "Must stay longer than the schedule interval."
+    placeholder: "-6m"
