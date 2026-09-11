@@ -88,4 +88,4 @@
   sha256: 5cb6343b98c24362bfa9bd925fbb7930110024b1afdb78cae899f232f15ac8cf
 - slug: triage_self_hosted_ci_failure
   path: templates/triage_self_hosted_ci_failure.yaml
-  sha256: a458f0d7b9b6af050a9636c63c13f338ce1caae3cf257de2fe89776fa9ce82da
+  sha256: ea175d860b7965c722eda5fddb74435a1135d7767bf9f1289c3a5a15e134416e
