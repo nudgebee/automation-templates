@@ -29,7 +29,7 @@ template_variables:
   - id: "chat_channel"
     input_ref: "chat_channel"
     display_name: "Chat Channel"
-    help_text: "Channel ID that receives the failure summary and the retry approval."
+    help_text: "Channel ID that receives the failure alert. The triage, evidence, retry approval and result all reply in its thread."
     required: true
     type: "string"
   - id: "runner_namespace"
@@ -53,7 +53,7 @@ definition:
       required: true
     - id: "chat_channel"
       type: "string"
-      description: "Channel ID for the failure summary and retry approval."
+      description: "Channel ID for the failure alert. The triage, approval and retry result all reply in its thread."
       required: true
     - id: "runner_namespace"
       type: "string"
@@ -70,6 +70,25 @@ definition:
         integration_name: "github_ci_webhook"
         filter: "{{ 'true' if webhook_payload.action == 'completed' and webhook_payload.workflow_run.conclusion == 'failure' else 'false' }}"
   tasks:
+    # Posted the moment the webhook lands, before any investigation starts. The
+    # triage below can take twenty minutes, and a CI failure nobody hears about
+    # for twenty minutes is a CI failure nobody acts on. Everything after this
+    # replies in its thread, so the channel keeps one message per failure.
+    # Continues on failure: if chat is down, the triage must still run — the
+    # replies then land unthreaded rather than not at all.
+    - id: "notify_alert"
+      type: "notifications.im"
+      timeout: "10m"
+      params:
+        provider: "slack"
+        channel: "{{ Inputs.chat_channel }}"
+        message: |-
+          :red_circle: *CI failed* · `{{ (Inputs.webhook_payload | from_json).repository.full_name }}`
+          <{{ (Inputs.webhook_payload | from_json).workflow_run.html_url }}|{{ (Inputs.webhook_payload | from_json).workflow_run.name }}> on `{{ (Inputs.webhook_payload | from_json).workflow_run.head_branch }}` · {{ (Inputs.webhook_payload | from_json).workflow_run.actor.login }}
+          _Triaging…_
+      failure_policy:
+        action: "continue"
+
     # The webhook body arrives as a JSON *string*, so every reference below parses
     # it with `| from_json`. Numeric ids need `| int` — JSON numbers decode as
     # floats and would otherwise render as "12345.0".
@@ -200,21 +219,29 @@ definition:
           When in doubt choose "none". A missed retry costs one manual click; a wrong retry masks a
           real defect.
 
-          Return JSON with exactly these keys:
-          {"verdict": "code" | "infra" | "undetermined", "layer": "application | pod | node | scheduling | resources | container-runtime | unknown", "headline": "one sentence", "evidence": "markdown bullets, each labelled (confirmed) or (inferred)", "next_action": "one sentence - re-run, fix code, or change infra", "transient": true | false, "remediation": {"action": "rerun_failed" | "none", "rationale": "one sentence saying why this action, or why no action"}}
+          ## Output length
+          This is posted into a chat thread, under a message that already shows the repository,
+          workflow, branch and author. Do not repeat any of those. Keep `headline` to one short
+          sentence and `evidence` to AT MOST 3 bullets, in the shortest sufficient wording.
 
-    # Headline only. Detail goes in the thread so the channel stays scannable.
+          Return JSON with exactly these keys:
+          {"verdict": "code" | "infra" | "undetermined", "layer": "application | pod | node | scheduling | resources | container-runtime | unknown", "headline": "one short sentence", "evidence": "at most 3 markdown bullets, each labelled (confirmed) or (inferred)", "next_action": "one short sentence - re-run, fix code, or change infra", "transient": true | false, "remediation": {"action": "rerun_failed" | "none", "rationale": "one short sentence saying why this action, or why no action"}}
+
+    # The verdict, as the first reply in the alert's thread. Repository, workflow
+    # and branch are deliberately absent — the alert above already shows them, and
+    # the RCA prompt tells the model not to repeat them either.
     - id: "notify_summary"
       type: "notifications.im"
       timeout: "10m"
       depends_on:
         - "rca"
+        - "notify_alert"
       params:
         provider: "slack"
         channel: "{{ Inputs.chat_channel }}"
+        message_thread_id: "{{ Tasks['notify_alert'].output.message_id | default('') }}"
         message: |-
-          :rotating_light: *CI failure — {{ Tasks['rca'].output.data.verdict | default('undetermined') | upper }}* ({{ Tasks['rca'].output.data.layer | default('unknown') }}) · `{{ (Inputs.webhook_payload | from_json).repository.full_name }}`
-          <{{ (Inputs.webhook_payload | from_json).workflow_run.html_url }}|{{ (Inputs.webhook_payload | from_json).workflow_run.name }}> on `{{ (Inputs.webhook_payload | from_json).workflow_run.head_branch }}` · runner `{{ Tasks['extract_runner'].output.data | default('none assigned') | trim }}`
+          *{{ Tasks['rca'].output.data.verdict | default('undetermined') | upper }}* · {{ Tasks['rca'].output.data.layer | default('unknown') }}{{ ' · _transient_' if Tasks['rca'].output.data.transient else '' }} · runner `{{ Tasks['extract_runner'].output.data | default('none assigned') | trim }}`
           {{ Tasks['rca'].output.data.headline | default('No conclusion could be drawn from the available evidence.') }}
 
     # `evidence` may come back as a list or a pre-formatted string depending on the
@@ -227,12 +254,12 @@ definition:
       params:
         provider: "slack"
         channel: "{{ Inputs.chat_channel }}"
-        message_thread_id: "{{ Tasks['notify_summary'].output.message_id }}"
+        message_thread_id: "{{ Tasks['notify_alert'].output.message_id | default('') }}"
         message: |-
           *Evidence*
           {{ '- ' ~ (Tasks['rca'].output.data.evidence | join('\n- ')) if (Tasks['rca'].output.data.evidence is iterable and Tasks['rca'].output.data.evidence is not string) else (Tasks['rca'].output.data.evidence | default('(none)')) }}
 
-          *Next action:* {{ Tasks['rca'].output.data.next_action | default('Investigate manually.') }}{{ '  _(transient — a re-run should pass)_' if Tasks['rca'].output.data.transient else '' }}
+          *Next action:* {{ Tasks['rca'].output.data.next_action | default('Investigate manually.') }}
           *Recommended remediation:* `{{ Tasks['rca'].output.data.remediation.action | default('none') }}` — {{ Tasks['rca'].output.data.remediation.rationale | default('no remediation proposed') }}
 
     # Only offered for transient infra failures. A code failure gets no button —
@@ -249,7 +276,7 @@ definition:
         approval_type: "instant_message"
         im_provider: "slack"
         im_channel: "{{ Inputs.chat_channel }}"
-        message_thread_id: "{{ Tasks['notify_summary'].output.message_id }}"
+        message_thread_id: "{{ Tasks['notify_alert'].output.message_id | default('') }}"
         approval_options:
           - "approve"
           - "reject"
@@ -282,5 +309,5 @@ definition:
       params:
         provider: "slack"
         channel: "{{ Inputs.chat_channel }}"
-        message_thread_id: "{{ Tasks['notify_summary'].output.message_id }}"
+        message_thread_id: "{{ Tasks['notify_alert'].output.message_id | default('') }}"
         message: "{{ ':repeat: Re-run of the failed jobs requested.' if 'RERUN_REQUESTED' in (Tasks['retry_run'].output.data | default('')) else ':x: Re-run was approved but the GitHub API call failed — the integration may be missing `actions: write`. Output: ' ~ (Tasks['retry_run'].output.data | default('(none)')) }}"
