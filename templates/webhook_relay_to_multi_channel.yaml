@@ -1,0 +1,104 @@
+slug: webhook_relay_to_multi_channel
+name: Webhook Relay to Multi-Channel
+description: Receives a webhook payload, transforms it into a human-readable message, and relays it to Slack, email, and optionally creates a ticket — useful for routing alerts from third-party tools that have limited notification options.
+category: automation
+icon: share-2
+status: ACTIVE
+tags:
+  use_case: webhook-routing
+  integrations:
+  - slack
+  - email
+  - tickets
+definition:
+  version: v1
+  inputs:
+  - id: payload
+    type: object
+    required: true
+  - id: source_name
+    type: string
+    required: false
+    default: External Webhook
+  - id: slack_channel
+    type: string
+    required: true
+  - id: email_recipients
+    type: string
+    required: false
+  - id: create_ticket_enabled
+    type: string
+    required: false
+    default: 'false'
+  - id: ticket_integration_id
+    type: string
+    required: false
+  - id: project_key
+    type: string
+    required: false
+  triggers:
+  - type: webhook
+  tasks:
+  - id: format_message
+    type: llm.summary
+    params:
+      message: |-
+        Convert this webhook payload into a concise, human-readable notification message. Include the most important fields. Source: {{ Inputs.source_name }}
+
+        Payload:
+        {{ Inputs.payload | tojson }}
+  - id: send_slack
+    type: notifications.im
+    depends_on:
+    - format_message
+    params:
+      provider: slack
+      channel: '{{ Inputs.slack_channel }}'
+      message: |-
+        📨 *{{ Inputs.source_name }}*
+
+        {{ Tasks.format_message.output.response }}
+  - id: send_email
+    type: notifications.email
+    depends_on:
+    - format_message
+    if: '{{ Inputs.email_recipients }}'
+    params:
+      recipients: '{{ Inputs.email_recipients }}'
+      subject: 'Webhook Alert: {{ Inputs.source_name }}'
+      body: '{{ Tasks.format_message.output.response }}'
+  - id: create_ticket
+    type: tickets.create
+    depends_on:
+    - format_message
+    if: '{{ Inputs.create_ticket_enabled == ''true'' and Inputs.ticket_integration_id }}'
+    params:
+      integration_id: '{{ Inputs.ticket_integration_id }}'
+      title: '[{{ Inputs.source_name }}] Webhook alert'
+      description: '{{ Tasks.format_message.output.response }}'
+      project_key: '{{ Inputs.project_key }}'
+template_variables:
+- id: slack_channel
+  input_ref: slack_channel
+  display_name: Slack Channel
+  help_text: Primary Slack channel for relayed messages
+  required: true
+  type: string
+  group: Destinations
+- id: email_recipients
+  input_ref: email_recipients
+  display_name: Email Recipients
+  help_text: Comma-separated email addresses
+  required: false
+  type: string
+  group: Destinations
+- id: create_tickets
+  input_ref: create_ticket_enabled
+  display_name: Create Tickets
+  help_text: Whether to create a ticket for each webhook
+  required: false
+  type: string
+  options:
+  - 'true'
+  - 'false'
+  group: Configuration

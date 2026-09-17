@@ -1,0 +1,158 @@
+slug: scheduled_ping_status_page
+name: Scheduled Ping and Status Page
+description: Pings a list of hosts on a schedule, checks DNS resolution and TCP connectivity, and posts a status page summary to Slack — showing which services are up, degraded, or down with response times.
+category: monitoring
+icon: wifi
+status: ACTIVE
+tags:
+  use_case: status-page
+  integrations:
+  - network
+  - slack
+definition:
+  version: v1
+  inputs:
+  - id: host_1
+    type: string
+    required: true
+  - id: host_2
+    type: string
+    required: false
+  - id: host_3
+    type: string
+    required: false
+  - id: port
+    type: string
+    required: false
+    default: '443'
+  - id: status_channel
+    type: string
+    required: true
+  triggers:
+  - type: schedule
+    params:
+      cron: '*/10 * * * *'
+  - type: manual
+  tasks:
+  - id: ping_host1
+    type: network.ping
+    params:
+      host: '{{ Inputs.host_1 }}'
+      count: 3
+    failure_policy:
+      action: continue
+  - id: tcp_host1
+    type: network.tcp
+    params:
+      host: '{{ Inputs.host_1 }}'
+      port: '{{ Inputs.port }}'
+      timeout: 5s
+    failure_policy:
+      action: continue
+  - id: dns_host1
+    type: network.dns
+    params:
+      domain: '{{ Inputs.host_1 }}'
+      type: A
+    failure_policy:
+      action: continue
+  - id: ping_host2
+    type: network.ping
+    if: '{{ Inputs.host_2 }}'
+    params:
+      host: '{{ Inputs.host_2 }}'
+      count: 3
+    failure_policy:
+      action: continue
+  - id: tcp_host2
+    type: network.tcp
+    if: '{{ Inputs.host_2 }}'
+    params:
+      host: '{{ Inputs.host_2 }}'
+      port: '{{ Inputs.port }}'
+      timeout: 5s
+    failure_policy:
+      action: continue
+  - id: ping_host3
+    type: network.ping
+    if: '{{ Inputs.host_3 }}'
+    params:
+      host: '{{ Inputs.host_3 }}'
+      count: 3
+    failure_policy:
+      action: continue
+  - id: tcp_host3
+    type: network.tcp
+    if: '{{ Inputs.host_3 }}'
+    params:
+      host: '{{ Inputs.host_3 }}'
+      port: '{{ Inputs.port }}'
+      timeout: 5s
+    failure_policy:
+      action: continue
+  - id: build_status
+    type: data.transform
+    depends_on:
+    - ping_host1
+    - tcp_host1
+    - dns_host1
+    - ping_host2
+    - tcp_host2
+    - ping_host3
+    - tcp_host3
+    params:
+      scriptType: javascript
+      expression: 'var lines = []; function status(name, ping, tcp) { var s = (ping === ''COMPLETED'' && tcp === ''COMPLETED'') ? ''🟢 UP'' : (ping === ''COMPLETED'' || tcp === ''COMPLETED'') ? ''🟡 DEGRADED'' : ''🔴 DOWN''; lines.push(s + '' | '' + name); } status(host1, ping1, tcp1); if (host2) status(host2, ping2, tcp2); if (host3) status(host3, ping3, tcp3); ({ status_lines: lines, has_issues: lines.some(function(l) { return l.indexOf(''DOWN'') >= 0 || l.indexOf(''DEGRADED'') >= 0; }) })'
+      input:
+        host1: '{{ Inputs.host_1 }}'
+        ping1: '{{ Tasks.ping_host1.status }}'
+        tcp1: '{{ Tasks.tcp_host1.status }}'
+        host2: '{{ Inputs.host_2 }}'
+        ping2: '{{ Tasks.ping_host2.status }}'
+        tcp2: '{{ Tasks.tcp_host2.status }}'
+        host3: '{{ Inputs.host_3 }}'
+        ping3: '{{ Tasks.ping_host3.status }}'
+        tcp3: '{{ Tasks.tcp_host3.status }}'
+  - id: post_status
+    type: notifications.im
+    depends_on:
+    - build_status
+    if: '{{ Tasks.build_status.output.has_issues }}'
+    params:
+      provider: slack
+      channel: '{{ Inputs.status_channel }}'
+      message: |-
+        📡 *Service Status*
+
+        {{ Tasks.build_status.output.status_lines | join('
+        ') }}
+template_variables:
+- id: host1
+  input_ref: host_1
+  display_name: Host 1
+  help_text: First hostname or IP to monitor
+  placeholder: api.example.com
+  required: true
+  type: string
+  group: Hosts
+- id: host2
+  input_ref: host_2
+  display_name: Host 2
+  help_text: Second hostname or IP to monitor
+  required: false
+  type: string
+  group: Hosts
+- id: host3
+  input_ref: host_3
+  display_name: Host 3
+  help_text: Third hostname or IP to monitor
+  required: false
+  type: string
+  group: Hosts
+- id: slack_channel
+  input_ref: status_channel
+  display_name: Status Channel
+  help_text: Slack channel for status page updates
+  required: true
+  type: string
+  group: Notifications

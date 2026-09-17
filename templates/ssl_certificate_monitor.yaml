@@ -1,0 +1,126 @@
+slug: ssl_certificate_monitor
+name: SSL Certificate Monitor
+description: Runs daily to check SSL certificate expiry across a list of domains. Sends urgent Slack alerts and creates tickets for certs expiring within 7 days, and warning emails for certs expiring within 30 days.
+category: monitoring
+icon: shield-check
+status: ACTIVE
+tags:
+  use_case: ssl-monitoring
+  integrations:
+  - network
+  - slack
+  - email
+  - tickets
+definition:
+  version: v1
+  inputs:
+  - id: domains
+    type: string
+    required: true
+  - id: notification_channel
+    type: string
+    required: true
+  - id: email_recipients
+    type: string
+    required: false
+  - id: cron_schedule
+    type: string
+    required: false
+    default: 0 9 * * *
+  - id: ticket_integration_id
+    type: string
+    required: false
+  - id: project_key
+    type: string
+    required: false
+  triggers:
+  - type: schedule
+    params:
+      cron: '{{ Inputs.cron_schedule }}'
+  - type: manual
+  tasks:
+  - id: parse_domains
+    type: data.transform
+    params:
+      input: '{{ Inputs.domains }}'
+      expression: $split($, ',')
+      scriptType: jsonata
+  - id: check_first_domain
+    type: network.ssl
+    depends_on:
+    - parse_domains
+    params:
+      host: '{{ Tasks.parse_domains.output[0] }}'
+    failure_policy:
+      action: continue
+  - id: evaluate_results
+    type: data.transform
+    depends_on:
+    - check_first_domain
+    params:
+      input: '{{ Tasks.check_first_domain.output | tojson }}'
+      expression: '{ ''host'': host, ''days_until_expiry'': days_until_expiry, ''issuer'': issuer, ''expiry_date'': expiry_date, ''status'': days_until_expiry <= 7 ? ''critical'' : days_until_expiry <= 30 ? ''warning'' : ''ok'' }'
+      scriptType: jsonata
+  - id: alert_critical
+    type: notifications.im
+    depends_on:
+    - evaluate_results
+    if: '{{ Tasks.evaluate_results.output.status == ''critical'' }}'
+    params:
+      provider: slack
+      channel: '{{ Inputs.notification_channel }}'
+      message: '🔴 *SSL CRITICAL*: {{ Tasks.evaluate_results.output.host }} expires in {{ Tasks.evaluate_results.output.days_until_expiry }} days ({{ Tasks.evaluate_results.output.expiry_date }})'
+  - id: create_ticket_critical
+    type: tickets.create
+    depends_on:
+    - alert_critical
+    if: '{{ Tasks.evaluate_results.output.status == ''critical'' and Inputs.ticket_integration_id }}'
+    params:
+      integration_id: '{{ Inputs.ticket_integration_id }}'
+      title: '[URGENT] SSL certificate expiring: {{ Tasks.evaluate_results.output.host }}'
+      description: |-
+        SSL certificate for {{ Tasks.evaluate_results.output.host }} expires in {{ Tasks.evaluate_results.output.days_until_expiry }} days.
+
+        Expiry date: {{ Tasks.evaluate_results.output.expiry_date }}
+        Issuer: {{ Tasks.evaluate_results.output.issuer }}
+      project_key: '{{ Inputs.project_key }}'
+      severity: High
+  - id: warn_email
+    type: notifications.email
+    depends_on:
+    - evaluate_results
+    if: '{{ Tasks.evaluate_results.output.status == ''warning'' and Inputs.email_recipients }}'
+    params:
+      recipients: '{{ Inputs.email_recipients }}'
+      subject: 'SSL Certificate Warning: {{ Tasks.evaluate_results.output.host }}'
+      body: SSL certificate for {{ Tasks.evaluate_results.output.host }} expires in {{ Tasks.evaluate_results.output.days_until_expiry }} days ({{ Tasks.evaluate_results.output.expiry_date }}). Please renew soon.
+template_variables:
+- id: domains
+  input_ref: domains
+  display_name: Domains to Monitor
+  help_text: Comma-separated list of domains to check (e.g. api.example.com,app.example.com)
+  required: true
+  type: string
+  group: Configuration
+- id: slack_channel
+  input_ref: notification_channel
+  display_name: Alert Channel
+  help_text: Slack channel for urgent certificate alerts
+  required: true
+  type: string
+  group: Notifications
+- id: email_recipients
+  input_ref: email_recipients
+  display_name: Email Recipients
+  help_text: Email addresses for warning notifications (comma-separated)
+  required: false
+  type: string
+  group: Notifications
+- id: cron_schedule
+  input_ref: cron_schedule
+  display_name: Check Schedule
+  help_text: Cron expression for how often to check
+  placeholder: 0 9 * * *
+  required: false
+  type: string
+  group: Schedule

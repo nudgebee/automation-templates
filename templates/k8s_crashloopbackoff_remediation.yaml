@@ -1,0 +1,138 @@
+slug: k8s_crashloopbackoff_remediation
+name: K8s CrashLoopBackOff Remediation
+description: Detects CrashLoopBackOff pods, gathers logs, uses AI to diagnose the root cause, and routes to the appropriate fix — OOM triggers vertical right-sizing, known errors restart the workload, unknown issues escalate to the team.
+category: kubernetes
+icon: kubernetes
+status: ACTIVE
+tags:
+  use_case: k8s-remediation
+  integrations:
+  - k8s
+  - llm
+  - slack
+definition:
+  version: v1
+  inputs:
+  - id: namespace
+    type: string
+    required: true
+  - id: workload_name
+    type: string
+    required: true
+  - id: workload_kind
+    type: string
+    required: false
+    default: Deployment
+  - id: notification_channel
+    type: string
+    required: true
+  - id: account_id
+    type: string
+    required: false
+  triggers:
+  - type: webhook
+  - type: manual
+  tasks:
+  - id: get_pod_status
+    type: k8s.cli
+    params:
+      command: get pods -n {{ Inputs.namespace }} -l app={{ Inputs.workload_name }} -o json
+      account_id: '{{ Inputs.account_id }}'
+  - id: get_pod_logs
+    type: k8s.cli
+    depends_on:
+    - get_pod_status
+    params:
+      command: logs -n {{ Inputs.namespace }} -l app={{ Inputs.workload_name }} --tail=200 --previous
+      account_id: '{{ Inputs.account_id }}'
+    failure_policy:
+      action: continue
+  - id: describe_pod
+    type: k8s.cli
+    depends_on:
+    - get_pod_status
+    params:
+      command: describe pod -n {{ Inputs.namespace }} -l app={{ Inputs.workload_name }}
+      account_id: '{{ Inputs.account_id }}'
+  - id: diagnose
+    type: llm.investigate
+    depends_on:
+    - get_pod_logs
+    - describe_pod
+    params:
+      message: |-
+        Diagnose this CrashLoopBackOff. Classify the root cause as one of: OOMKilled, ConfigError, DependencyFailure, ImagePullError, Unknown.
+
+        Pod Status:
+        {{ Tasks.get_pod_status.output }}
+
+        Pod Logs:
+        {{ Tasks.get_pod_logs.output }}
+
+        Pod Describe:
+        {{ Tasks.describe_pod.output }}
+  - id: notify_diagnosis
+    type: notifications.im
+    depends_on:
+    - diagnose
+    params:
+      provider: slack
+      channel: '{{ Inputs.notification_channel }}'
+      message: |-
+        🔍 *CrashLoopBackOff Diagnosed*
+        *Workload:* {{ Inputs.namespace }}/{{ Inputs.workload_name }}
+        *Diagnosis:* {{ Tasks.diagnose.output.response }}
+  - id: route_action
+    type: core.switch
+    depends_on:
+    - diagnose
+    params:
+      expression: '{{ ''OOMKilled'' if ''OOMKill'' in Tasks.diagnose.output.response else ''Unknown'' }}'
+      cases:
+      - value: OOMKilled
+        next: rightsize_up
+      default_next: restart_workload
+  - id: rightsize_up
+    type: k8s.vertical_rightsize
+    params:
+      namespace: '{{ Inputs.namespace }}'
+      name: '{{ Inputs.workload_name }}'
+      kind: '{{ Inputs.workload_kind }}'
+      direction: up
+      account_id: '{{ Inputs.account_id }}'
+    hooks:
+      success:
+      - type: notifications.im
+        params:
+          provider: slack
+          channel: '{{ Inputs.notification_channel }}'
+          message: '✅ *Auto-remediated OOMKilled*: Scaled up memory for {{ Inputs.workload_name }}'
+  - id: restart_workload
+    type: k8s.workload_restart
+    params:
+      namespace: '{{ Inputs.namespace }}'
+      name: '{{ Inputs.workload_name }}'
+      kind: '{{ Inputs.workload_kind }}'
+      account_id: '{{ Inputs.account_id }}'
+    hooks:
+      success:
+      - type: notifications.im
+        params:
+          provider: slack
+          channel: '{{ Inputs.notification_channel }}'
+          message: '🔄 *Restarted workload*: {{ Inputs.workload_name }} — manual investigation may be needed'
+template_variables:
+- id: slack_channel
+  input_ref: notification_channel
+  display_name: Slack Channel
+  help_text: Channel for remediation notifications
+  required: true
+  type: string
+  group: Notifications
+- id: k8s_account
+  input_ref: account_id
+  display_name: Kubernetes Account
+  help_text: Nudgebee account with K8s cluster access
+  required: false
+  type: account
+  group: Infrastructure

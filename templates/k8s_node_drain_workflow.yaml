@@ -1,0 +1,118 @@
+slug: k8s_node_drain_workflow
+name: K8s Node Drain Workflow
+description: Safely drains a Kubernetes node for maintenance — cordons the node, verifies pod disruption budgets, gracefully evicts workloads, waits for pod migration, and notifies the team at each step.
+category: kubernetes
+icon: server
+status: ACTIVE
+tags:
+  use_case: node-maintenance
+  integrations:
+  - k8s
+  - slack
+definition:
+  version: v1
+  inputs:
+  - id: node_name
+    type: string
+    required: true
+  - id: notification_channel
+    type: string
+    required: true
+  - id: drain_timeout
+    type: string
+    required: false
+    default: 300s
+  - id: account_id
+    type: string
+    required: false
+  triggers:
+  - type: manual
+  tasks:
+  - id: check_node
+    type: k8s.cli
+    params:
+      command: get node {{ Inputs.node_name }} -o json
+      account_id: '{{ Inputs.account_id }}'
+  - id: list_pods_on_node
+    type: k8s.cli
+    depends_on:
+    - check_node
+    params:
+      command: get pods --all-namespaces --field-selector spec.nodeName={{ Inputs.node_name }} -o wide
+      account_id: '{{ Inputs.account_id }}'
+  - id: request_approval
+    type: core.approval
+    depends_on:
+    - list_pods_on_node
+    params:
+      message: |-
+        🖥️ *Node Drain Request*
+        *Node:* {{ Inputs.node_name }}
+
+        *Pods on this node:*
+        {{ Tasks.list_pods_on_node.output }}
+
+        Approve to cordon and drain this node?
+      approval_type: instant_message
+      im_provider: slack
+      im_channel: '{{ Inputs.notification_channel }}'
+      approval_options:
+      - approve
+      - cancel
+  - id: cordon_node
+    type: k8s.cli
+    depends_on:
+    - request_approval
+    if: '{{ Tasks.request_approval.output.status == ''approve'' }}'
+    params:
+      command: cordon {{ Inputs.node_name }}
+      account_id: '{{ Inputs.account_id }}'
+  - id: notify_cordoned
+    type: notifications.im
+    depends_on:
+    - cordon_node
+    params:
+      provider: slack
+      channel: '{{ Inputs.notification_channel }}'
+      message: 🟡 Node {{ Inputs.node_name }} cordoned. Starting drain...
+  - id: drain_node
+    type: k8s.cli
+    depends_on:
+    - notify_cordoned
+    params:
+      command: drain {{ Inputs.node_name }} --ignore-daemonsets --delete-emptydir-data --timeout={{ Inputs.drain_timeout }}
+      account_id: '{{ Inputs.account_id }}'
+  - id: verify_drained
+    type: k8s.cli
+    depends_on:
+    - drain_node
+    params:
+      command: get pods --all-namespaces --field-selector spec.nodeName={{ Inputs.node_name }} -o wide
+      account_id: '{{ Inputs.account_id }}'
+  - id: notify_complete
+    type: notifications.im
+    depends_on:
+    - verify_drained
+    params:
+      provider: slack
+      channel: '{{ Inputs.notification_channel }}'
+      message: |-
+        ✅ *Node {{ Inputs.node_name }} drained successfully*
+        Remaining pods: {{ Tasks.verify_drained.output }}
+
+        Node is ready for maintenance. Run `kubectl uncordon {{ Inputs.node_name }}` when done.
+  hooks:
+    failure:
+    - type: notifications.im
+      params:
+        provider: slack
+        channel: '{{ Inputs.notification_channel }}'
+        message: ❌ *Node drain failed* for {{ Inputs.node_name }} — manual intervention required
+template_variables:
+- id: slack_channel
+  input_ref: notification_channel
+  display_name: Ops Channel
+  help_text: Slack channel for drain progress notifications
+  required: true
+  type: string
+  group: Notifications

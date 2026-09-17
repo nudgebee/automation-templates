@@ -1,0 +1,130 @@
+slug: incident_auto_responder
+name: Incident Auto-Responder
+description: 'Automatically triages incoming alerts: investigates root cause with AI, creates a ticket, notifies the on-call channel, and escalates if not acknowledged within the SLA window.'
+category: incident-management
+icon: alert-triangle
+status: ACTIVE
+tags:
+  use_case: incident-response
+  integrations:
+  - tickets
+  - slack
+  - llm
+definition:
+  version: v1
+  inputs:
+  - id: alert_title
+    type: string
+    required: true
+  - id: alert_details
+    type: string
+    required: true
+  - id: alert_severity
+    type: string
+    required: false
+    default: High
+  - id: ticket_integration_id
+    type: string
+    required: true
+  - id: notification_channel
+    type: string
+    required: true
+  - id: project_key
+    type: string
+    required: true
+  - id: escalation_wait_duration
+    type: string
+    required: false
+    default: 5m
+  triggers:
+  - type: webhook
+  tasks:
+  - id: investigate
+    type: llm.investigate
+    params:
+      message: |-
+        Investigate this alert and provide a root cause analysis:
+
+        Title: {{ Inputs.alert_title }}
+        Details: {{ Inputs.alert_details }}
+        Severity: {{ Inputs.alert_severity }}
+  - id: create_ticket
+    type: tickets.create
+    depends_on:
+    - investigate
+    params:
+      integration_id: '{{ Inputs.ticket_integration_id }}'
+      title: '[{{ Inputs.alert_severity }}] {{ Inputs.alert_title }}'
+      description: |-
+        ## Alert Details
+        {{ Inputs.alert_details }}
+
+        ## AI Investigation
+        {{ Tasks.investigate.output.response }}
+      project_key: '{{ Inputs.project_key }}'
+      severity: '{{ Inputs.alert_severity }}'
+      ticket_type: Incident
+  - id: notify_channel
+    type: notifications.im
+    depends_on:
+    - create_ticket
+    params:
+      provider: slack
+      channel: '{{ Inputs.notification_channel }}'
+      message: |-
+        🚨 *Incident Created*: {{ Inputs.alert_title }}
+        *Severity:* {{ Inputs.alert_severity }}
+        *Ticket:* {{ Tasks.create_ticket.output.ticket_id }}
+        *AI Summary:* {{ Tasks.investigate.output.response }}
+  - id: wait_for_ack
+    type: core.wait
+    depends_on:
+    - notify_channel
+    params:
+      duration: '{{ Inputs.escalation_wait_duration }}'
+  - id: escalate
+    type: tickets.escalate
+    depends_on:
+    - wait_for_ack
+    params:
+      integration_id: '{{ Inputs.ticket_integration_id }}'
+      ticket_id: '{{ Tasks.create_ticket.output.ticket_id }}'
+    hooks:
+      success:
+      - type: notifications.im
+        params:
+          provider: slack
+          channel: '{{ Inputs.notification_channel }}'
+          message: '⬆️ *Escalated*: {{ Inputs.alert_title }} — no acknowledgement within SLA'
+template_variables:
+- id: ticket_integration
+  input_ref: ticket_integration_id
+  display_name: Ticket Integration
+  help_text: Select your ticket/incident platform (Jira, PagerDuty, etc.)
+  required: true
+  type: integration
+  group: Integrations
+- id: slack_channel
+  input_ref: notification_channel
+  display_name: Slack Channel
+  help_text: Channel ID for incident notifications
+  placeholder: C0123456789
+  required: true
+  type: string
+  group: Notifications
+- id: project_key
+  input_ref: project_key
+  display_name: Project Key
+  help_text: Ticket project key (e.g. OPS for Jira, owner/repo for GitHub)
+  placeholder: OPS
+  required: true
+  type: string
+  group: Tickets
+- id: escalation_wait
+  input_ref: escalation_wait_duration
+  display_name: Escalation Wait
+  help_text: How long to wait for acknowledgement before escalating
+  placeholder: 5m
+  required: false
+  type: string
+  group: SLA

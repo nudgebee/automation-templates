@@ -1,0 +1,133 @@
+slug: multi_endpoint_health_check
+name: Multi-Endpoint Health Check
+description: Performs concurrent health checks across HTTP endpoints, TCP ports, and DNS — runs on a schedule and sends Slack alerts when any check fails.
+category: monitoring
+icon: activity
+status: ACTIVE
+tags:
+  use_case: uptime-monitoring
+  integrations:
+  - network
+  - http
+  - slack
+definition:
+  version: v1
+  inputs:
+  - id: health_endpoint
+    type: string
+    required: true
+  - id: tcp_host
+    type: string
+    required: false
+  - id: tcp_port
+    type: string
+    required: false
+    default: '443'
+  - id: dns_domain
+    type: string
+    required: false
+  - id: notification_channel
+    type: string
+    required: true
+  - id: cron_schedule
+    type: string
+    required: false
+    default: '*/5 * * * *'
+  triggers:
+  - type: schedule
+    params:
+      cron: '{{ Inputs.cron_schedule }}'
+  - type: manual
+  tasks:
+  - id: http_check
+    type: integrations.http
+    params:
+      url: '{{ Inputs.health_endpoint }}'
+      method: GET
+      timeout: 10s
+    failure_policy:
+      action: continue
+  - id: tcp_check
+    type: network.tcp
+    if: '{{ Inputs.tcp_host }}'
+    params:
+      host: '{{ Inputs.tcp_host }}'
+      port: '{{ Inputs.tcp_port }}'
+      timeout: 5s
+    failure_policy:
+      action: continue
+  - id: dns_check
+    type: network.dns
+    if: '{{ Inputs.dns_domain }}'
+    params:
+      domain: '{{ Inputs.dns_domain }}'
+      type: A
+    failure_policy:
+      action: continue
+  - id: evaluate
+    type: data.transform
+    depends_on:
+    - http_check
+    - tcp_check
+    - dns_check
+    params:
+      expression: 'var failures = []; if (http_status !== ''COMPLETED'') failures.push(''HTTP: '' + http_endpoint); if (tcp_status !== ''COMPLETED'' && tcp_host) failures.push(''TCP: '' + tcp_host + '':'' + tcp_port); if (dns_status !== ''COMPLETED'' && dns_domain) failures.push(''DNS: '' + dns_domain); ({ total_checks: 3, failures: failures, has_failures: failures.length > 0 })'
+      scriptType: javascript
+      input:
+        http_status: '{{ Tasks.http_check.status }}'
+        http_endpoint: '{{ Inputs.health_endpoint }}'
+        tcp_status: '{{ Tasks.tcp_check.status }}'
+        tcp_host: '{{ Inputs.tcp_host }}'
+        tcp_port: '{{ Inputs.tcp_port }}'
+        dns_status: '{{ Tasks.dns_check.status }}'
+        dns_domain: '{{ Inputs.dns_domain }}'
+  - id: alert_failures
+    type: notifications.im
+    depends_on:
+    - evaluate
+    if: '{{ Tasks.evaluate.output.has_failures }}'
+    params:
+      provider: slack
+      channel: '{{ Inputs.notification_channel }}'
+      message: |-
+        🔴 *Health Check Failures Detected*
+        {{ Tasks.evaluate.output.failures | join('
+        ') }}
+template_variables:
+- id: health_url
+  input_ref: health_endpoint
+  display_name: Health Endpoint URL
+  help_text: HTTP health check endpoint (e.g. https://api.example.com/health)
+  placeholder: https://api.example.com/health
+  required: true
+  type: string
+  group: Endpoints
+- id: tcp_host
+  input_ref: tcp_host
+  display_name: TCP Host
+  help_text: Hostname for TCP port check
+  required: false
+  type: string
+  group: Endpoints
+- id: tcp_port
+  input_ref: tcp_port
+  display_name: TCP Port
+  help_text: Port number for TCP check
+  placeholder: '5432'
+  required: false
+  type: string
+  group: Endpoints
+- id: dns_domain
+  input_ref: dns_domain
+  display_name: DNS Domain
+  help_text: Domain for DNS resolution check
+  required: false
+  type: string
+  group: Endpoints
+- id: slack_channel
+  input_ref: notification_channel
+  display_name: Alert Channel
+  help_text: Slack channel for failure alerts
+  required: true
+  type: string
+  group: Notifications

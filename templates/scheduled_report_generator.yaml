@@ -1,0 +1,141 @@
+slug: scheduled_report_generator
+name: Scheduled Report Generator
+description: Pulls data from an HTTP API and database on a schedule, uses AI to generate a human-readable report, and distributes it via Slack and email — ideal for daily/weekly business or ops metrics reports.
+category: automation
+icon: bar-chart
+status: ACTIVE
+tags:
+  use_case: reporting
+  integrations:
+  - http
+  - dbms
+  - llm
+  - slack
+  - email
+definition:
+  version: v1
+  inputs:
+  - id: report_name
+    type: string
+    required: true
+  - id: api_url
+    type: string
+    required: false
+  - id: api_headers
+    type: object
+    required: false
+  - id: db_integration_id
+    type: string
+    required: false
+  - id: dbms_type
+    type: string
+    required: false
+    default: postgresql
+  - id: db_query
+    type: string
+    required: false
+  - id: report_prompt
+    type: string
+    required: false
+    default: Generate a clear, structured report from this data with key highlights, trends, and action items.
+  - id: slack_channel
+    type: string
+    required: true
+  - id: email_recipients
+    type: string
+    required: false
+  - id: account_id
+    type: string
+    required: false
+  triggers:
+  - type: schedule
+    params:
+      cron: 0 9 * * 1
+  - type: manual
+  tasks:
+  - id: fetch_api_data
+    type: integrations.http
+    if: '{{ Inputs.api_url }}'
+    params:
+      url: '{{ Inputs.api_url }}'
+      method: GET
+      headers: '{{ Inputs.api_headers }}'
+      timeout: 30s
+    failure_policy:
+      action: continue
+  - id: fetch_db_data
+    type: dbms.query
+    if: '{{ Inputs.db_integration_id and Inputs.db_query }}'
+    params:
+      integration_id: '{{ Inputs.db_integration_id }}'
+      dbms_type: '{{ Inputs.dbms_type }}'
+      command: '{{ Inputs.db_query }}'
+      account_id: '{{ Inputs.account_id }}'
+    failure_policy:
+      action: continue
+  - id: generate_report
+    type: llm.summary
+    depends_on:
+    - fetch_api_data
+    - fetch_db_data
+    params:
+      message: |-
+        {{ Inputs.report_prompt }}
+
+        Report: {{ Inputs.report_name }}
+
+        ### API Data
+        {{ Tasks.fetch_api_data.output | tojson if Tasks.fetch_api_data.output else 'No API data' }}
+
+        ### Database Data
+        {{ Tasks.fetch_db_data.output | tojson if Tasks.fetch_db_data.output else 'No DB data' }}
+  - id: post_to_slack
+    type: notifications.im
+    depends_on:
+    - generate_report
+    params:
+      provider: slack
+      channel: '{{ Inputs.slack_channel }}'
+      message: |-
+        📊 *{{ Inputs.report_name }}*
+
+        {{ Tasks.generate_report.output.response }}
+  - id: send_email
+    type: notifications.email
+    depends_on:
+    - generate_report
+    if: '{{ Inputs.email_recipients }}'
+    params:
+      recipients: '{{ Inputs.email_recipients }}'
+      subject: '{{ Inputs.report_name }}'
+      body: '{{ Tasks.generate_report.output.response }}'
+template_variables:
+- id: report_name
+  input_ref: report_name
+  display_name: Report Name
+  help_text: Name for this report (e.g. Weekly SLA Report)
+  placeholder: Weekly SLA Report
+  required: true
+  type: string
+  group: Configuration
+- id: api_url
+  input_ref: api_url
+  display_name: API Endpoint
+  help_text: HTTP endpoint to fetch report data from
+  required: false
+  type: string
+  group: Data Sources
+- id: db_query
+  input_ref: db_query
+  display_name: Database Query
+  help_text: SQL query for report data
+  required: false
+  type: string
+  group: Data Sources
+- id: slack_channel
+  input_ref: slack_channel
+  display_name: Report Channel
+  help_text: Slack channel to post the report
+  required: true
+  type: string
+  group: Distribution
