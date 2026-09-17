@@ -1,0 +1,97 @@
+slug: k8s_namespace_quota_monitor
+name: K8s Namespace Quota Monitor
+description: Checks resource quota usage across Kubernetes namespaces on a schedule. Alerts when CPU, memory, or pod count usage exceeds configurable thresholds, helping prevent deployment failures from quota exhaustion.
+category: kubernetes
+icon: pie-chart
+status: ACTIVE
+tags:
+  use_case: resource-monitoring
+  integrations:
+  - k8s
+  - llm
+  - slack
+definition:
+  version: v1
+  inputs:
+  - id: namespaces
+    type: string
+    required: false
+  - id: usage_threshold_pct
+    type: string
+    required: false
+    default: '80'
+  - id: notification_channel
+    type: string
+    required: true
+  - id: account_id
+    type: string
+    required: false
+  triggers:
+  - type: schedule
+    params:
+      cron: 0 */6 * * *
+  - type: manual
+  tasks:
+  - id: get_quotas
+    type: k8s.cli
+    params:
+      command: get resourcequota --all-namespaces -o json
+      account_id: '{{ Inputs.account_id }}'
+  - id: get_node_capacity
+    type: k8s.cli
+    params:
+      command: top nodes --no-headers
+      account_id: '{{ Inputs.account_id }}'
+    failure_policy:
+      action: continue
+  - id: analyze_quotas
+    type: llm.summary
+    depends_on:
+    - get_quotas
+    - get_node_capacity
+    params:
+      message: |-
+        Analyze K8s resource quota usage. Flag any namespace where usage exceeds {{ Inputs.usage_threshold_pct }}% of its quota for CPU, memory, or pods. Format as a table with: Namespace | Resource | Used | Limit | Usage%.
+
+        Only show namespaces with concerns (above threshold) or with no quota set.
+
+        ### Resource Quotas
+        {{ Tasks.get_quotas.output | tojson }}
+
+        ### Node Capacity
+        {{ Tasks.get_node_capacity.output }}
+  - id: alert
+    type: notifications.im
+    depends_on:
+    - analyze_quotas
+    if: '{{ ''No concerns'' not in Tasks.analyze_quotas.output.response }}'
+    params:
+      provider: slack
+      channel: '{{ Inputs.notification_channel }}'
+      message: |-
+        📊 *K8s Quota Usage Alert*
+
+        {{ Tasks.analyze_quotas.output.response }}
+template_variables:
+- id: namespaces
+  input_ref: namespaces
+  display_name: Namespaces
+  help_text: Comma-separated list of namespaces to monitor (leave empty for all)
+  required: false
+  type: string
+  group: Configuration
+- id: threshold
+  input_ref: usage_threshold_pct
+  display_name: Alert Threshold (%)
+  help_text: Alert when quota usage exceeds this percentage
+  placeholder: '80'
+  required: false
+  type: string
+  group: Thresholds
+- id: slack_channel
+  input_ref: notification_channel
+  display_name: Alert Channel
+  help_text: Slack channel for quota alerts
+  required: true
+  type: string
+  group: Notifications

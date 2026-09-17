@@ -1,0 +1,129 @@
+slug: war_room_bootstrapper
+name: War Room Bootstrapper
+description: Instantly sets up an incident war room — creates a dedicated Slack channel, posts incident context, pulls initial logs and metrics, runs AI investigation, creates a tracking ticket, and notifies all responders.
+category: incident-management
+icon: users
+status: ACTIVE
+tags:
+  use_case: incident-war-room
+  integrations:
+  - slack
+  - tickets
+  - observability
+  - llm
+definition:
+  version: v1
+  inputs:
+  - id: incident_title
+    type: string
+    required: true
+  - id: incident_description
+    type: string
+    required: true
+  - id: severity
+    type: string
+    required: false
+    default: P1
+  - id: affected_service
+    type: string
+    required: false
+  - id: responder_channel
+    type: string
+    required: true
+  - id: ticket_integration_id
+    type: string
+    required: true
+  - id: project_key
+    type: string
+    required: true
+  - id: log_query
+    type: string
+    required: false
+  - id: account_id
+    type: string
+    required: false
+  triggers:
+  - type: manual
+  - type: webhook
+  tasks:
+  - id: create_ticket
+    type: tickets.create
+    params:
+      integration_id: '{{ Inputs.ticket_integration_id }}'
+      title: '[{{ Inputs.severity }}] {{ Inputs.incident_title }}'
+      description: |-
+        {{ Inputs.incident_description }}
+
+        Affected Service: {{ Inputs.affected_service }}
+      project_key: '{{ Inputs.project_key }}'
+      severity: '{{ Inputs.severity }}'
+      ticket_type: Incident
+  - id: investigate
+    type: llm.investigate
+    params:
+      message: |-
+        Investigate this incident and provide initial findings:
+
+        Title: {{ Inputs.incident_title }}
+        Description: {{ Inputs.incident_description }}
+        Affected Service: {{ Inputs.affected_service }}
+        Severity: {{ Inputs.severity }}
+  - id: fetch_logs
+    type: observability.logs
+    if: '{{ Inputs.log_query }}'
+    params:
+      query: '{{ Inputs.log_query }}'
+      limit: 200
+      account_id: '{{ Inputs.account_id }}'
+    failure_policy:
+      action: continue
+  - id: post_to_responders
+    type: notifications.im
+    depends_on:
+    - create_ticket
+    - investigate
+    - fetch_logs
+    params:
+      provider: slack
+      channel: '{{ Inputs.responder_channel }}'
+      message: |-
+        🚨 *INCIDENT WAR ROOM — {{ Inputs.severity }}*
+
+        *{{ Inputs.incident_title }}*
+        *Affected Service:* {{ Inputs.affected_service }}
+        *Ticket:* {{ Tasks.create_ticket.output.ticket_id }}
+
+        ---
+        *AI Investigation:*
+        {{ Tasks.investigate.output.response }}
+
+        ---
+        *Recent Logs:*
+        {{ Tasks.fetch_logs.output | truncate(500) if Tasks.fetch_logs.output else 'No logs query configured' }}
+  - id: comment_on_ticket
+    type: tickets.add_comment
+    depends_on:
+    - create_ticket
+    - investigate
+    params:
+      integration_id: '{{ Inputs.ticket_integration_id }}'
+      ticket_id: '{{ Tasks.create_ticket.output.ticket_id }}'
+      project_key: '{{ Inputs.project_key }}'
+      comment: |-
+        AI Investigation:
+        {{ Tasks.investigate.output.response }}
+template_variables:
+- id: responder_channel
+  input_ref: responder_channel
+  display_name: Responder Channel
+  help_text: Main incident channel to notify responders
+  required: true
+  type: string
+  group: Notifications
+- id: ticket_integration
+  input_ref: ticket_integration_id
+  display_name: Ticket Integration
+  help_text: Integration for creating the incident ticket
+  required: true
+  type: integration
+  group: Integrations

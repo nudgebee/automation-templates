@@ -1,0 +1,136 @@
+slug: incident_post_mortem_generator
+name: Incident Post-Mortem Generator
+description: Gathers all incident context — ticket details, comments, logs, and metrics — then uses AI to generate a structured post-mortem document with timeline, root cause, impact analysis, and action items.
+category: incident-management
+icon: file-text
+status: ACTIVE
+tags:
+  use_case: post-mortem
+  integrations:
+  - tickets
+  - observability
+  - llm
+  - email
+definition:
+  version: v1
+  inputs:
+  - id: ticket_id
+    type: string
+    required: true
+  - id: ticket_integration_id
+    type: string
+    required: true
+  - id: project_key
+    type: string
+    required: false
+  - id: email_recipients
+    type: string
+    required: true
+  - id: log_query
+    type: string
+    required: false
+  - id: metrics_queries
+    type: object
+    required: false
+  - id: account_id
+    type: string
+    required: false
+  triggers:
+  - type: manual
+  tasks:
+  - id: get_ticket
+    type: tickets.get
+    params:
+      ticket_id: '{{ Inputs.ticket_id }}'
+      integration_id: '{{ Inputs.ticket_integration_id }}'
+      project_key: '{{ Inputs.project_key }}'
+  - id: get_comments
+    type: tickets.get_comments
+    params:
+      ticket_id: '{{ Inputs.ticket_id }}'
+      integration_id: '{{ Inputs.ticket_integration_id }}'
+      project_key: '{{ Inputs.project_key }}'
+  - id: get_logs
+    type: observability.logs
+    if: '{{ Inputs.log_query }}'
+    params:
+      query: '{{ Inputs.log_query }}'
+      limit: 500
+      account_id: '{{ Inputs.account_id }}'
+    failure_policy:
+      action: continue
+  - id: get_metrics
+    type: observability.metrics
+    if: '{{ Inputs.metrics_queries }}'
+    params:
+      queries: '{{ Inputs.metrics_queries }}'
+      account_id: '{{ Inputs.account_id }}'
+    failure_policy:
+      action: continue
+  - id: generate_postmortem
+    type: llm.summary
+    depends_on:
+    - get_ticket
+    - get_comments
+    - get_logs
+    - get_metrics
+    params:
+      message: |-
+        Generate a structured incident post-mortem document using the following format:
+
+        ## Incident Summary
+        ## Timeline of Events
+        ## Root Cause Analysis
+        ## Impact Assessment
+        ## What Went Well
+        ## What Could Be Improved
+        ## Action Items (with owners and deadlines)
+
+        Use this data:
+
+        ### Incident Details
+        {{ Tasks.get_ticket.output | tojson }}
+
+        ### Discussion / Comments
+        {{ Tasks.get_comments.output | tojson }}
+
+        ### Relevant Logs
+        {{ Tasks.get_logs.output | tojson if Tasks.get_logs.output else 'No logs available' }}
+
+        ### Metrics During Incident
+        {{ Tasks.get_metrics.output | tojson if Tasks.get_metrics.output else 'No metrics available' }}
+  - id: send_postmortem
+    type: notifications.email
+    depends_on:
+    - generate_postmortem
+    params:
+      recipients: '{{ Inputs.email_recipients }}'
+      subject: 'Post-Mortem: {{ Tasks.get_ticket.output.title }} ({{ Inputs.ticket_id }})'
+      body: '{{ Tasks.generate_postmortem.output.response }}'
+  - id: comment_on_ticket
+    type: tickets.add_comment
+    depends_on:
+    - generate_postmortem
+    params:
+      integration_id: '{{ Inputs.ticket_integration_id }}'
+      ticket_id: '{{ Inputs.ticket_id }}'
+      project_key: '{{ Inputs.project_key }}'
+      comment: |-
+        📋 Auto-generated post-mortem has been emailed to stakeholders.
+
+        {{ Tasks.generate_postmortem.output.response }}
+template_variables:
+- id: ticket_integration
+  input_ref: ticket_integration_id
+  display_name: Ticket Integration
+  help_text: Integration for fetching incident details
+  required: true
+  type: integration
+  group: Integrations
+- id: email_recipients
+  input_ref: email_recipients
+  display_name: Post-Mortem Recipients
+  help_text: Email addresses to receive the post-mortem (comma-separated)
+  required: true
+  type: string
+  group: Distribution

@@ -1,0 +1,160 @@
+slug: on_call_escalation_chain
+name: On-Call Escalation Chain
+description: 'Implements a tiered escalation policy: DMs the primary on-call, waits for acknowledgement, then escalates to secondary and finally to the engineering manager channel if no one responds.'
+category: incident-management
+icon: phone-call
+status: ACTIVE
+tags:
+  use_case: escalation
+  integrations:
+  - slack
+  - tickets
+definition:
+  version: v1
+  inputs:
+  - id: alert_title
+    type: string
+    required: true
+  - id: alert_details
+    type: string
+    required: true
+  - id: alert_severity
+    type: string
+    required: false
+    default: High
+  - id: primary_user_id
+    type: string
+    required: true
+  - id: secondary_user_id
+    type: string
+    required: true
+  - id: manager_channel
+    type: string
+    required: true
+  - id: ack_timeout
+    type: string
+    required: false
+    default: 5m
+  triggers:
+  - type: webhook
+  - type: manual
+  tasks:
+  - id: dm_primary
+    type: notifications.dm
+    params:
+      provider: slack
+      user_id: '{{ Inputs.primary_user_id }}'
+      message: |-
+        🚨 *Alert — Action Required*
+        *{{ Inputs.alert_title }}*
+        Severity: {{ Inputs.alert_severity }}
+
+        {{ Inputs.alert_details }}
+
+        Please acknowledge within {{ Inputs.ack_timeout }}.
+  - id: wait_primary
+    type: core.approval
+    depends_on:
+    - dm_primary
+    timeout: 5m
+    params:
+      message: 'Acknowledge alert: {{ Inputs.alert_title }}'
+      approval_type: instant_message
+      im_provider: slack
+      im_channel: '{{ Inputs.primary_user_id }}'
+      approval_options:
+      - acknowledge
+    failure_policy:
+      action: continue
+  - id: check_primary_ack
+    type: core.switch
+    depends_on:
+    - wait_primary
+    params:
+      expression: '{{ Tasks.wait_primary.status }}'
+      cases:
+      - value: COMPLETED
+        next: ack_confirmed
+      default_next: dm_secondary
+  - id: dm_secondary
+    type: notifications.dm
+    params:
+      provider: slack
+      user_id: '{{ Inputs.secondary_user_id }}'
+      message: |-
+        ⬆️ *Escalated Alert — Primary did not respond*
+        *{{ Inputs.alert_title }}*
+        Severity: {{ Inputs.alert_severity }}
+
+        {{ Inputs.alert_details }}
+  - id: wait_secondary
+    type: core.approval
+    depends_on:
+    - dm_secondary
+    timeout: 5m
+    params:
+      message: 'Acknowledge escalated alert: {{ Inputs.alert_title }}'
+      approval_type: instant_message
+      im_provider: slack
+      im_channel: '{{ Inputs.secondary_user_id }}'
+      approval_options:
+      - acknowledge
+    failure_policy:
+      action: continue
+  - id: check_secondary_ack
+    type: core.switch
+    depends_on:
+    - wait_secondary
+    params:
+      expression: '{{ Tasks.wait_secondary.status }}'
+      cases:
+      - value: COMPLETED
+        next: ack_confirmed
+      default_next: escalate_to_manager
+  - id: escalate_to_manager
+    type: notifications.im
+    params:
+      provider: slack
+      channel: '{{ Inputs.manager_channel }}'
+      message: |-
+        🔴 *UNACKNOWLEDGED ALERT — Manager Escalation*
+        *{{ Inputs.alert_title }}*
+        Severity: {{ Inputs.alert_severity }}
+
+        Both primary and secondary on-call did not respond within {{ Inputs.ack_timeout }} each.
+
+        {{ Inputs.alert_details }}
+  - id: ack_confirmed
+    type: core.print
+    params:
+      message: 'Alert acknowledged: {{ Inputs.alert_title }}'
+template_variables:
+- id: primary_oncall
+  input_ref: primary_user_id
+  display_name: Primary On-Call
+  help_text: Slack user ID of the primary on-call engineer
+  required: true
+  type: string
+  group: On-Call
+- id: secondary_oncall
+  input_ref: secondary_user_id
+  display_name: Secondary On-Call
+  help_text: Slack user ID of the secondary/backup on-call engineer
+  required: true
+  type: string
+  group: On-Call
+- id: manager_channel
+  input_ref: manager_channel
+  display_name: Manager Channel
+  help_text: Slack channel for final escalation to management
+  required: true
+  type: string
+  group: Escalation
+- id: ack_timeout
+  input_ref: ack_timeout
+  display_name: Ack Timeout
+  help_text: Time to wait for acknowledgement at each tier
+  placeholder: 5m
+  required: false
+  type: string
+  group: Escalation

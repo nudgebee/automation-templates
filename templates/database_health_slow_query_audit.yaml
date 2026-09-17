@@ -1,0 +1,128 @@
+slug: database_health_slow_query_audit
+name: Database Health and Slow Query Audit
+description: Runs scheduled health checks on a database — monitors active connections, replication lag, and long-running queries. Uses AI to suggest optimizations and alerts the team when thresholds are exceeded.
+category: monitoring
+icon: database
+status: ACTIVE
+tags:
+  use_case: database-monitoring
+  integrations:
+  - dbms
+  - llm
+  - slack
+  - tickets
+definition:
+  version: v1
+  inputs:
+  - id: db_integration_id
+    type: string
+    required: true
+  - id: dbms_type
+    type: string
+    required: true
+    default: postgresql
+  - id: notification_channel
+    type: string
+    required: true
+  - id: slow_query_threshold
+    type: string
+    required: false
+    default: '30'
+  - id: max_connections_pct
+    type: string
+    required: false
+    default: '80'
+  - id: account_id
+    type: string
+    required: false
+  triggers:
+  - type: schedule
+    params:
+      cron: 0 * * * *
+  - type: manual
+  tasks:
+  - id: check_connections
+    type: dbms.query
+    params:
+      integration_id: '{{ Inputs.db_integration_id }}'
+      dbms_type: '{{ Inputs.dbms_type }}'
+      command: SELECT count(*) as active_connections, (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') as max_connections FROM pg_stat_activity WHERE state = 'active'
+      account_id: '{{ Inputs.account_id }}'
+  - id: check_slow_queries
+    type: dbms.query
+    params:
+      integration_id: '{{ Inputs.db_integration_id }}'
+      dbms_type: '{{ Inputs.dbms_type }}'
+      command: SELECT pid, now() - pg_stat_activity.query_start AS duration, query, state FROM pg_stat_activity WHERE (now() - pg_stat_activity.query_start) > interval '{{ Inputs.slow_query_threshold }} seconds' AND state != 'idle' ORDER BY duration DESC LIMIT 10
+      account_id: '{{ Inputs.account_id }}'
+  - id: check_replication
+    type: dbms.query
+    params:
+      integration_id: '{{ Inputs.db_integration_id }}'
+      dbms_type: '{{ Inputs.dbms_type }}'
+      command: SELECT client_addr, state, sent_lsn, write_lsn, flush_lsn, replay_lsn, extract(epoch from replay_lag) as replay_lag_seconds FROM pg_stat_replication
+      account_id: '{{ Inputs.account_id }}'
+    failure_policy:
+      action: continue
+  - id: analyze_health
+    type: llm.summary
+    depends_on:
+    - check_connections
+    - check_slow_queries
+    - check_replication
+    params:
+      message: |-
+        Analyze this database health report. Flag any issues and suggest optimizations.
+
+        ### Active Connections
+        {{ Tasks.check_connections.output | tojson }}
+
+        ### Slow Queries (> {{ Inputs.slow_query_threshold }}s)
+        {{ Tasks.check_slow_queries.output | tojson }}
+
+        ### Replication Status
+        {{ Tasks.check_replication.output | tojson if Tasks.check_replication.output else 'No replication configured' }}
+  - id: alert_if_issues
+    type: notifications.im
+    depends_on:
+    - analyze_health
+    params:
+      provider: slack
+      channel: '{{ Inputs.notification_channel }}'
+      message: |-
+        🗄️ *Database Health Report*
+
+        {{ Tasks.analyze_health.output.response }}
+template_variables:
+- id: db_integration
+  input_ref: db_integration_id
+  display_name: Database Integration
+  help_text: Select your database integration
+  required: true
+  type: integration
+  group: Database
+- id: db_type
+  input_ref: dbms_type
+  display_name: Database Type
+  help_text: Type of database
+  required: true
+  type: string
+  options:
+  - postgresql
+  - mysql
+  group: Database
+- id: slack_channel
+  input_ref: notification_channel
+  display_name: Alert Channel
+  help_text: Slack channel for database alerts
+  required: true
+  type: string
+  group: Notifications
+- id: slow_query_seconds
+  input_ref: slow_query_threshold
+  display_name: Slow Query Threshold (seconds)
+  help_text: Queries running longer than this are flagged
+  placeholder: '30'
+  required: false
+  type: string
+  group: Thresholds

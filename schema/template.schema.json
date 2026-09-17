@@ -15,7 +15,7 @@
     "description": { "type": "string" },
     "category": {
       "type": "string",
-      "enum": ["kubernetes", "aws", "azure", "gcp", "general"]
+      "enum": ["kubernetes", "aws", "azure", "gcp", "general", "incident-management", "monitoring", "deployment", "security", "cloud-cost", "automation"]
     },
     "icon": { "type": "string" },
     "status": {

@@ -1,0 +1,117 @@
+slug: infrastructure_compliance_audit
+name: Infrastructure Compliance Audit
+description: Runs weekly checks against AWS infrastructure for common compliance violations — public S3 buckets, security groups with 0.0.0.0/0, unencrypted volumes — and generates a report with tickets for violations.
+category: security
+icon: clipboard-check
+status: ACTIVE
+tags:
+  use_case: compliance
+  integrations:
+  - aws
+  - llm
+  - slack
+  - tickets
+definition:
+  version: v1
+  inputs:
+  - id: notification_channel
+    type: string
+    required: true
+  - id: aws_region
+    type: string
+    required: false
+    default: us-east-1
+  - id: ticket_integration_id
+    type: string
+    required: false
+  - id: project_key
+    type: string
+    required: false
+  - id: account_id
+    type: string
+    required: false
+  triggers:
+  - type: schedule
+    params:
+      cron: 0 8 * * 1
+  - type: manual
+  tasks:
+  - id: check_public_s3
+    type: cloud.aws.cli
+    params:
+      command: s3api list-buckets --query 'Buckets[].Name' --output json
+      account_id: '{{ Inputs.account_id }}'
+  - id: check_open_sgs
+    type: cloud.aws.cli
+    params:
+      command: ec2 describe-security-groups --region {{ Inputs.aws_region }} --filters Name=ip-permission.cidr,Values='0.0.0.0/0' --query 'SecurityGroups[].{GroupId:GroupId,GroupName:GroupName,Description:Description}' --output json
+      account_id: '{{ Inputs.account_id }}'
+  - id: check_unencrypted_volumes
+    type: cloud.aws.cli
+    params:
+      command: ec2 describe-volumes --region {{ Inputs.aws_region }} --filters Name=encrypted,Values=false --query 'Volumes[].{VolumeId:VolumeId,Size:Size,State:State}' --output json
+      account_id: '{{ Inputs.account_id }}'
+  - id: check_public_rds
+    type: cloud.aws.cli
+    params:
+      command: rds describe-db-instances --region {{ Inputs.aws_region }} --query 'DBInstances[?PubliclyAccessible==`true`].{DBInstanceIdentifier:DBInstanceIdentifier,Engine:Engine,Endpoint:Endpoint.Address}' --output json
+      account_id: '{{ Inputs.account_id }}'
+  - id: generate_report
+    type: llm.summary
+    depends_on:
+    - check_public_s3
+    - check_open_sgs
+    - check_unencrypted_volumes
+    - check_public_rds
+    params:
+      message: |-
+        Generate a security compliance audit report. For each finding, rate severity (CRITICAL/HIGH/MEDIUM/LOW) and provide remediation steps.
+
+        ### Open Security Groups (0.0.0.0/0)
+        {{ Tasks.check_open_sgs.output | tojson }}
+
+        ### Unencrypted EBS Volumes
+        {{ Tasks.check_unencrypted_volumes.output | tojson }}
+
+        ### Publicly Accessible RDS
+        {{ Tasks.check_public_rds.output | tojson }}
+
+        ### S3 Buckets (check public access)
+        {{ Tasks.check_public_s3.output | tojson }}
+  - id: notify_report
+    type: notifications.im
+    depends_on:
+    - generate_report
+    params:
+      provider: slack
+      channel: '{{ Inputs.notification_channel }}'
+      message: |-
+        🛡️ *Weekly Infrastructure Compliance Report*
+
+        {{ Tasks.generate_report.output.response }}
+  - id: create_violation_ticket
+    type: tickets.create
+    depends_on:
+    - generate_report
+    if: '{{ Inputs.ticket_integration_id and ''CRITICAL'' in Tasks.generate_report.output.response }}'
+    params:
+      integration_id: '{{ Inputs.ticket_integration_id }}'
+      title: '[Compliance] Critical infrastructure violations detected'
+      description: '{{ Tasks.generate_report.output.response }}'
+      project_key: '{{ Inputs.project_key }}'
+      severity: High
+template_variables:
+- id: slack_channel
+  input_ref: notification_channel
+  display_name: Security Channel
+  help_text: Slack channel for compliance reports
+  required: true
+  type: string
+  group: Notifications
+- id: ticket_integration
+  input_ref: ticket_integration_id
+  display_name: Ticket Integration
+  help_text: Create tickets for violations
+  required: false
+  type: integration
+  group: Integrations

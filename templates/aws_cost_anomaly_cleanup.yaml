@@ -1,0 +1,129 @@
+slug: aws_cost_anomaly_cleanup
+name: AWS Cost Anomaly and Cleanup
+description: Scans for orphaned AWS resources — unattached EBS volumes, idle load balancers, and old snapshots — calculates waste, and requests Slack approval before cleaning them up. Sends a savings report after cleanup.
+category: cloud-cost
+icon: dollar-sign
+status: ACTIVE
+tags:
+  use_case: cloud-cost-optimization
+  integrations:
+  - aws
+  - slack
+definition:
+  version: v1
+  inputs:
+  - id: approval_channel
+    type: string
+    required: true
+  - id: aws_region
+    type: string
+    required: false
+    default: us-east-1
+  - id: snapshot_age_days
+    type: string
+    required: false
+    default: '90'
+  - id: email_recipients
+    type: string
+    required: false
+  - id: account_id
+    type: string
+    required: false
+  triggers:
+  - type: schedule
+    params:
+      cron: 0 8 * * 1
+  - type: manual
+  tasks:
+  - id: find_unattached_volumes
+    type: cloud.aws.cli
+    params:
+      command: ec2 describe-volumes --region {{ Inputs.aws_region }} --filters Name=status,Values=available --query 'Volumes[].{VolumeId:VolumeId,Size:Size,CreateTime:CreateTime}' --output json
+      account_id: '{{ Inputs.account_id }}'
+  - id: find_old_snapshots
+    type: cloud.aws.cli
+    params:
+      command: ec2 describe-snapshots --region {{ Inputs.aws_region }} --owner-ids self --query 'Snapshots[].{SnapshotId:SnapshotId,VolumeSize:VolumeSize,StartTime:StartTime,Description:Description}' --output json
+      account_id: '{{ Inputs.account_id }}'
+  - id: find_idle_lbs
+    type: cloud.aws.cli
+    params:
+      command: elbv2 describe-load-balancers --region {{ Inputs.aws_region }} --query 'LoadBalancers[].{LoadBalancerArn:LoadBalancerArn,LoadBalancerName:LoadBalancerName,State:State.Code}' --output json
+      account_id: '{{ Inputs.account_id }}'
+  - id: build_report
+    type: llm.summary
+    depends_on:
+    - find_unattached_volumes
+    - find_old_snapshots
+    - find_idle_lbs
+    params:
+      message: |-
+        Generate a cloud cost waste report from these findings. Calculate estimated monthly savings assuming $0.10/GB/month for EBS and $0.05/GB/month for snapshots. Format as a clear summary with total estimated savings.
+
+        ### Unattached EBS Volumes
+        {{ Tasks.find_unattached_volumes.output | tojson }}
+
+        ### Old Snapshots (> {{ Inputs.snapshot_age_days }} days)
+        {{ Tasks.find_old_snapshots.output | tojson }}
+
+        ### Load Balancers
+        {{ Tasks.find_idle_lbs.output | tojson }}
+  - id: request_cleanup_approval
+    type: core.approval
+    depends_on:
+    - build_report
+    params:
+      message: |-
+        💰 *AWS Cost Cleanup Report*
+
+        {{ Tasks.build_report.output.response }}
+
+        Approve to delete unattached volumes and old snapshots?
+      approval_type: instant_message
+      im_provider: slack
+      im_channel: '{{ Inputs.approval_channel }}'
+      approval_options:
+      - approve
+      - skip
+  - id: notify_skipped
+    type: notifications.im
+    depends_on:
+    - request_cleanup_approval
+    if: '{{ Tasks.request_cleanup_approval.output.status != ''approve'' }}'
+    params:
+      provider: slack
+      channel: '{{ Inputs.approval_channel }}'
+      message: ⏭️ AWS cleanup skipped. Report saved for reference.
+  - id: send_report_email
+    type: notifications.email
+    depends_on:
+    - build_report
+    if: '{{ Inputs.email_recipients }}'
+    params:
+      recipients: '{{ Inputs.email_recipients }}'
+      subject: Weekly AWS Cost Anomaly Report — {{ Inputs.aws_region }}
+      body: '{{ Tasks.build_report.output.response }}'
+template_variables:
+- id: slack_channel
+  input_ref: approval_channel
+  display_name: Approval Channel
+  help_text: Slack channel for cleanup approval requests
+  required: true
+  type: string
+  group: Notifications
+- id: aws_region
+  input_ref: aws_region
+  display_name: AWS Region
+  help_text: AWS region to scan
+  placeholder: us-east-1
+  required: false
+  type: string
+  group: AWS
+- id: snapshot_age
+  input_ref: snapshot_age_days
+  display_name: Snapshot Age Threshold (days)
+  help_text: Flag snapshots older than this many days
+  placeholder: '90'
+  required: false
+  type: string
+  group: Thresholds

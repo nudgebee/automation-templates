@@ -1,0 +1,85 @@
+slug: log_anomaly_detector
+name: Log Anomaly Detector
+description: Queries recent logs on a schedule, uses AI to detect anomalies and unusual patterns (error spikes, new error types, unusual access patterns), and alerts the team with a summary of findings.
+category: monitoring
+icon: search
+status: ACTIVE
+tags:
+  use_case: log-analysis
+  integrations:
+  - observability
+  - llm
+  - slack
+definition:
+  version: v1
+  inputs:
+  - id: log_query
+    type: string
+    required: true
+  - id: notification_channel
+    type: string
+    required: true
+  - id: lookback_minutes
+    type: string
+    required: false
+    default: '60'
+  - id: account_id
+    type: string
+    required: false
+  triggers:
+  - type: schedule
+    params:
+      cron: 0 * * * *
+  - type: manual
+  tasks:
+  - id: fetch_logs
+    type: observability.logs
+    params:
+      query: '{{ Inputs.log_query }}'
+      limit: 1000
+      account_id: '{{ Inputs.account_id }}'
+  - id: detect_anomalies
+    type: llm.investigate
+    depends_on:
+    - fetch_logs
+    params:
+      message: |-
+        Analyze these logs from the last {{ Inputs.lookback_minutes }} minutes for anomalies. Look for:
+        1. Error rate spikes or new error types
+        2. Unusual access patterns
+        3. Performance degradation signals
+        4. Security-related events (auth failures, unusual IPs)
+
+        Classify each finding as: CRITICAL, WARNING, or INFO.
+        If nothing unusual is found, say 'No anomalies detected.'
+
+        Logs:
+        {{ Tasks.fetch_logs.output | tojson }}
+  - id: alert_anomalies
+    type: notifications.im
+    depends_on:
+    - detect_anomalies
+    if: '{{ ''No anomalies detected'' not in Tasks.detect_anomalies.output.response }}'
+    params:
+      provider: slack
+      channel: '{{ Inputs.notification_channel }}'
+      message: |-
+        🔍 *Log Anomaly Report*
+
+        {{ Tasks.detect_anomalies.output.response }}
+template_variables:
+- id: log_query
+  input_ref: log_query
+  display_name: Log Query
+  help_text: Query to fetch logs for analysis (CloudWatch Insights, Loki, etc.)
+  placeholder: fields @timestamp, @message | filter @message like /error/i | sort @timestamp desc
+  required: true
+  type: string
+  group: Logs
+- id: slack_channel
+  input_ref: notification_channel
+  display_name: Alert Channel
+  help_text: Slack channel for anomaly alerts
+  required: true
+  type: string
+  group: Notifications

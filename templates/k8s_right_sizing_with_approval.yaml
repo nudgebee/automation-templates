@@ -1,0 +1,126 @@
+slug: k8s_right_sizing_with_approval
+name: K8s Right-Sizing with Approval
+description: Generates vertical right-sizing recommendations for a Kubernetes workload, posts a summary with projected savings to Slack for team approval, and applies the changes only after explicit approval.
+category: kubernetes
+icon: sliders
+status: ACTIVE
+tags:
+  use_case: cost-optimization
+  integrations:
+  - k8s
+  - slack
+  - llm
+definition:
+  version: v1
+  inputs:
+  - id: namespace
+    type: string
+    required: true
+  - id: workload_name
+    type: string
+    required: true
+  - id: workload_kind
+    type: string
+    required: false
+    default: Deployment
+  - id: approval_channel
+    type: string
+    required: true
+  - id: account_id
+    type: string
+    required: false
+  triggers:
+  - type: manual
+  - type: schedule
+    params:
+      cron: 0 10 * * 1
+  tasks:
+  - id: get_current_resources
+    type: k8s.cli
+    params:
+      command: get {{ Inputs.workload_kind | lower }} {{ Inputs.workload_name }} -n {{ Inputs.namespace }} -o jsonpath='{.spec.template.spec.containers[*].resources}'
+      account_id: '{{ Inputs.account_id }}'
+  - id: generate_recommendation
+    type: k8s.vertical_rightsize
+    depends_on:
+    - get_current_resources
+    params:
+      namespace: '{{ Inputs.namespace }}'
+      name: '{{ Inputs.workload_name }}'
+      kind: '{{ Inputs.workload_kind }}'
+      account_id: '{{ Inputs.account_id }}'
+  - id: summarize
+    type: llm.summary
+    depends_on:
+    - generate_recommendation
+    params:
+      message: |-
+        Summarize this K8s right-sizing recommendation in a concise, human-readable format. Include current vs recommended resources and estimated savings.
+
+        Current: {{ Tasks.get_current_resources.output }}
+        Recommendation: {{ Tasks.generate_recommendation.output | tojson }}
+  - id: request_approval
+    type: core.approval
+    depends_on:
+    - summarize
+    params:
+      message: |-
+        📊 *Right-Sizing Recommendation*
+        *Workload:* {{ Inputs.namespace }}/{{ Inputs.workload_name }}
+
+        {{ Tasks.summarize.output.response }}
+
+        Approve to apply these changes?
+      approval_type: instant_message
+      im_provider: slack
+      im_channel: '{{ Inputs.approval_channel }}'
+      approval_options:
+      - approve
+      - reject
+  - id: apply_recommendation
+    type: k8s.vertical_rightsize
+    depends_on:
+    - request_approval
+    if: '{{ Tasks.request_approval.output.status == ''approve'' }}'
+    params:
+      namespace: '{{ Inputs.namespace }}'
+      name: '{{ Inputs.workload_name }}'
+      kind: '{{ Inputs.workload_kind }}'
+      account_id: '{{ Inputs.account_id }}'
+    hooks:
+      success:
+      - type: notifications.im
+        params:
+          provider: slack
+          channel: '{{ Inputs.approval_channel }}'
+          message: ✅ *Right-sizing applied* to {{ Inputs.namespace }}/{{ Inputs.workload_name }}
+      failure:
+      - type: notifications.im
+        params:
+          provider: slack
+          channel: '{{ Inputs.approval_channel }}'
+          message: ❌ *Right-sizing failed* for {{ Inputs.namespace }}/{{ Inputs.workload_name }}
+  - id: notify_rejected
+    type: notifications.im
+    depends_on:
+    - request_approval
+    if: '{{ Tasks.request_approval.output.status == ''reject'' }}'
+    params:
+      provider: slack
+      channel: '{{ Inputs.approval_channel }}'
+      message: ⏭️ *Right-sizing skipped* for {{ Inputs.namespace }}/{{ Inputs.workload_name }} — rejected by {{ Tasks.request_approval.output.approved_by }}
+template_variables:
+- id: slack_channel
+  input_ref: approval_channel
+  display_name: Approval Channel
+  help_text: Slack channel for posting approval requests
+  required: true
+  type: string
+  group: Notifications
+- id: k8s_account
+  input_ref: account_id
+  display_name: Kubernetes Account
+  help_text: Nudgebee account with K8s cluster access
+  required: false
+  type: account
+  group: Infrastructure

@@ -1,0 +1,131 @@
+slug: argocd_sync_with_validation
+name: ArgoCD Sync with Validation
+description: Triggers an ArgoCD application sync, monitors the sync status, verifies the health of the deployed application, and notifies the team — with automatic rollback if the sync fails or the app becomes unhealthy.
+category: deployment
+icon: git-merge
+status: ACTIVE
+tags:
+  use_case: gitops-deployment
+  integrations:
+  - argocd
+  - k8s
+  - slack
+definition:
+  version: v1
+  inputs:
+  - id: app_name
+    type: string
+    required: true
+  - id: revision
+    type: string
+    required: false
+    default: HEAD
+  - id: notification_channel
+    type: string
+    required: true
+  - id: health_check_wait
+    type: string
+    required: false
+    default: 2m
+  - id: account_id
+    type: string
+    required: false
+  triggers:
+  - type: manual
+  - type: webhook
+  tasks:
+  - id: get_current_state
+    type: cicd.argocd.cli
+    params:
+      command: app get {{ Inputs.app_name }} -o json
+      account_id: '{{ Inputs.account_id }}'
+  - id: notify_sync_start
+    type: notifications.im
+    depends_on:
+    - get_current_state
+    params:
+      provider: slack
+      channel: '{{ Inputs.notification_channel }}'
+      message: |-
+        🔄 *Starting ArgoCD sync*
+        *App:* {{ Inputs.app_name }}
+        *Revision:* {{ Inputs.revision }}
+  - id: sync_app
+    type: cicd.argocd.cli
+    depends_on:
+    - notify_sync_start
+    params:
+      command: app sync {{ Inputs.app_name }} --revision {{ Inputs.revision }}
+      account_id: '{{ Inputs.account_id }}'
+  - id: wait_sync
+    type: cicd.argocd.cli
+    depends_on:
+    - sync_app
+    params:
+      command: app wait {{ Inputs.app_name }} --timeout 300
+      account_id: '{{ Inputs.account_id }}'
+    failure_policy:
+      action: continue
+  - id: wait_health
+    type: core.wait
+    depends_on:
+    - wait_sync
+    params:
+      duration: '{{ Inputs.health_check_wait }}'
+  - id: check_health
+    type: cicd.argocd.cli
+    depends_on:
+    - wait_health
+    params:
+      command: app get {{ Inputs.app_name }} -o json
+      account_id: '{{ Inputs.account_id }}'
+  - id: evaluate_health
+    type: data.transform
+    depends_on:
+    - check_health
+    params:
+      input: '{{ Tasks.check_health.output | tojson }}'
+      expression: '{ ''healthy'': status.health.status = ''Healthy'', ''sync_status'': status.sync.status, ''health_status'': status.health.status }'
+      scriptType: jsonata
+  - id: route_result
+    type: core.switch
+    depends_on:
+    - evaluate_health
+    params:
+      expression: '{{ Tasks.evaluate_health.output.healthy }}'
+      cases:
+      - value: 'true'
+        next: notify_success
+      default_next: rollback
+  - id: notify_success
+    type: notifications.im
+    params:
+      provider: slack
+      channel: '{{ Inputs.notification_channel }}'
+      message: |-
+        ✅ *ArgoCD sync successful*
+        *App:* {{ Inputs.app_name }}
+        *Health:* {{ Tasks.evaluate_health.output.health_status }}
+        *Sync:* {{ Tasks.evaluate_health.output.sync_status }}
+  - id: rollback
+    type: cicd.argocd.cli
+    params:
+      command: app rollback {{ Inputs.app_name }}
+      account_id: '{{ Inputs.account_id }}'
+    hooks:
+      success:
+      - type: notifications.im
+        params:
+          provider: slack
+          channel: '{{ Inputs.notification_channel }}'
+          message: |-
+            ⏪ *ArgoCD rollback triggered*
+            *App:* {{ Inputs.app_name }} — sync resulted in unhealthy state
+template_variables:
+- id: slack_channel
+  input_ref: notification_channel
+  display_name: Deploy Channel
+  help_text: Slack channel for sync notifications
+  required: true
+  type: string
+  group: Notifications

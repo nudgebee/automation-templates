@@ -1,0 +1,138 @@
+slug: deployment_rollback_with_canary_validation
+name: Deployment Rollback with Canary Validation
+description: Deploys a new version, waits for a stabilization window, checks error rate via an HTTP metrics endpoint, and automatically rolls back if the error rate exceeds the threshold — or requests approval to proceed with full rollout.
+category: deployment
+icon: rocket
+status: ACTIVE
+tags:
+  use_case: safe-deployment
+  integrations:
+  - k8s
+  - http
+  - slack
+definition:
+  version: v1
+  inputs:
+  - id: namespace
+    type: string
+    required: true
+  - id: workload_name
+    type: string
+    required: true
+  - id: image_tag
+    type: string
+    required: true
+  - id: metrics_url
+    type: string
+    required: true
+  - id: notification_channel
+    type: string
+    required: true
+  - id: error_rate_threshold
+    type: string
+    required: false
+    default: '5'
+  - id: stabilization_window
+    type: string
+    required: false
+    default: 5m
+  - id: account_id
+    type: string
+    required: false
+  triggers:
+  - type: manual
+  tasks:
+  - id: deploy
+    type: k8s.cli
+    params:
+      command: set image deployment/{{ Inputs.workload_name }} {{ Inputs.workload_name }}={{ Inputs.image_tag }} -n {{ Inputs.namespace }}
+      account_id: '{{ Inputs.account_id }}'
+  - id: notify_deployed
+    type: notifications.im
+    depends_on:
+    - deploy
+    params:
+      provider: slack
+      channel: '{{ Inputs.notification_channel }}'
+      message: |-
+        🚀 *Deployed* {{ Inputs.workload_name }} with image {{ Inputs.image_tag }}
+        Waiting {{ Inputs.stabilization_window }} for stabilization...
+  - id: wait_stabilize
+    type: core.wait
+    depends_on:
+    - notify_deployed
+    params:
+      duration: '{{ Inputs.stabilization_window }}'
+  - id: check_metrics
+    type: integrations.http
+    depends_on:
+    - wait_stabilize
+    params:
+      url: '{{ Inputs.metrics_url }}'
+      method: GET
+      timeout: 10s
+  - id: evaluate_health
+    type: data.transform
+    depends_on:
+    - check_metrics
+    params:
+      input: '{{ Tasks.check_metrics.output | tojson }}'
+      expression: '{ ''healthy'': error_rate <= threshold, ''error_rate'': error_rate }'
+      scriptType: jsonata
+  - id: route_decision
+    type: core.switch
+    depends_on:
+    - evaluate_health
+    params:
+      expression: '{{ Tasks.evaluate_health.output.healthy }}'
+      cases:
+      - value: 'true'
+        next: approve_rollout
+      - value: 'false'
+        next: rollback
+  - id: approve_rollout
+    type: core.approval
+    params:
+      message: '✅ {{ Inputs.workload_name }} is healthy (error rate: {{ Tasks.evaluate_health.output.error_rate }}%). Approve full rollout?'
+      approval_type: instant_message
+      im_provider: slack
+      im_channel: '{{ Inputs.notification_channel }}'
+      approval_options:
+      - approve
+      - rollback
+  - id: rollback
+    type: k8s.cli
+    params:
+      command: rollout undo deployment/{{ Inputs.workload_name }} -n {{ Inputs.namespace }}
+      account_id: '{{ Inputs.account_id }}'
+    hooks:
+      success:
+      - type: notifications.im
+        params:
+          provider: slack
+          channel: '{{ Inputs.notification_channel }}'
+          message: ⏪ *Rolled back* {{ Inputs.workload_name }} — error rate exceeded threshold
+template_variables:
+- id: slack_channel
+  input_ref: notification_channel
+  display_name: Deploy Channel
+  help_text: Slack channel for deployment notifications
+  required: true
+  type: string
+  group: Notifications
+- id: error_threshold
+  input_ref: error_rate_threshold
+  display_name: Error Rate Threshold
+  help_text: Maximum acceptable error rate percentage (e.g. 5)
+  placeholder: '5'
+  required: false
+  type: string
+  group: Validation
+- id: stabilization
+  input_ref: stabilization_window
+  display_name: Stabilization Window
+  help_text: Wait time after deploy before checking metrics
+  placeholder: 5m
+  required: false
+  type: string
+  group: Validation
