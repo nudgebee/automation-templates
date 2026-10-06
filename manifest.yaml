@@ -76,7 +76,7 @@
   sha256: 1c5e8cedf774ade3f591a7b446896d821345666fa87ea5f9946592feb29061cd
 - slug: kubernetes_namespace_health_check
   path: templates/kubernetes_namespace_health_check.yaml
-  sha256: 3e8558c6e552730e045c88aaff2041cd3709d67641bfb14824d0ee9435a38adc
+  sha256: 21828f0548d4fc8d48b3273c30019d00ca4988e28a24c51f1fb7ea963c62c725
 - slug: log_anomaly_detector
   path: templates/log_anomaly_detector.yaml
   sha256: 7c7e2eb8638c6a978f1ea2efb466212b47e314ad35f049c2c7139b5990adca47

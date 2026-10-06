@@ -40,7 +40,7 @@ definition:
       required: true
   output: {}
   tasks:
-    - id: "review-nudgebee-health"
+    - id: "review-health"
       type: "llm.investigate"
       params:
         message: |
@@ -57,10 +57,10 @@ definition:
       params:
         channel: "{{ Inputs.slack_channel }}"
         message: |
-          {{ Tasks['review-nudgebee-health'].output.data}}
+          {{ Tasks['review-health'].output.data}}
         provider: "slack"
       depends_on:
-        - "review-nudgebee-health"
+        - "review-health"
       layout:
         x: 400
         y: 460
