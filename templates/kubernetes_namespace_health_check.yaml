@@ -1,10 +1,8 @@
 slug: kubernetes_namespace_health_check
 name: "Kubernetes Namespace Health Check"
 description: >-
-  Daily health report for the Kubernetes namespaces you care about. An AI agent inspects each
-  namespace read-only — unhealthy pods, restarts and OOM kills in the lookback window, workloads
-  short of replicas, warning events, unbound volumes and node pressure — and posts a colour-coded
-  summary to chat. Optionally stays quiet when everything is healthy.
+  Scheduled AI review of cluster health for the namespaces you choose — namespace health plus any
+  recent OOMs or restarts — posted to a Slack channel.
 category: "kubernetes"
 icon: "health_and_safety"
 status: ACTIVE
@@ -13,136 +11,73 @@ tags:
     - "diagnostic"
     - "notification"
     - "read-only"
-  event_sources: []
-  alert_names: []
-  subject_types:
-    - "namespace"
-    - "pod"
 template_variables:
   - id: "namespaces"
     input_ref: "namespaces"
     display_name: "Namespaces"
-    help_text: "Comma-separated list of namespaces to check."
-    placeholder: "nudgebee,redis,rabbitmq"
+    help_text: "Comma-separated list of namespaces to health-check."
+    placeholder: "nudgebee, redis, rabbit"
     required: true
     type: "string"
-    group: "Scope"
-  - id: "lookback_hours"
-    input_ref: "lookback_hours"
-    display_name: "Lookback (hours)"
-    help_text: "How far back to look for restarts, OOM kills and warning events. Match it to the schedule — 24 for a daily run."
-    placeholder: "24"
-    required: false
-    type: "string"
-    group: "Scope"
-  - id: "chat_channel"
-    input_ref: "chat_channel"
-    display_name: "Chat Channel"
-    help_text: "Slack channel ID that receives the report."
+  - id: "slack_channel"
+    input_ref: "slack_channel"
+    display_name: "Slack Channel"
+    help_text: "Slack channel ID that receives the health report."
+    placeholder: "C09UZE6Q2V9"
     required: true
     type: "string"
-    group: "Notifications"
-  - id: "notify_when_healthy"
-    input_ref: "notify_when_healthy"
-    display_name: "Post When Healthy"
-    help_text: "\"true\" posts every run. \"false\" posts only when something is degraded or critical."
-    required: false
-    type: "string"
-    options:
-      - "true"
-      - "false"
-    group: "Notifications"
 definition:
   version: "v1"
-  timeout: "30m"
-  retry_policy:
-    initial_interval: "1s"
-    maximum_attempts: 3
-    maximum_interval: "1m"
-    backoff_coefficient: 2
+  timeout: "1800s"
   inputs:
     - id: "namespaces"
       type: "string"
-      description: "Comma-separated namespaces to check."
+      description: "Comma-separated namespaces to health-check."
       required: true
-    - id: "lookback_hours"
+    - id: "slack_channel"
       type: "string"
-      default: "24"
-      description: "Window, in hours, for restarts, OOM kills and warning events."
-    - id: "chat_channel"
-      type: "string"
-      description: "Slack channel ID for the report."
+      description: "Slack channel ID for the health report."
       required: true
-    - id: "notify_when_healthy"
-      type: "string"
-      default: "true"
-      description: "Post the report even when every namespace is healthy."
+  output: {}
+  tasks:
+    - id: "review-health"
+      type: "llm.investigate"
+      params:
+        message: |
+          Investigate/Review Cluster Health
+          - health check on {{ Inputs.namespaces }} namespace(s)
+          - Any Recent OOMs/Restarts
+        response_format: "text"
+        session_scope: "execution"
+      layout:
+        x: 400
+        y: 280
+    - id: "send-notification"
+      type: "notifications.im"
+      params:
+        channel: "{{ Inputs.slack_channel }}"
+        message: |
+          {{ Tasks['review-health'].output.data}}
+        provider: "slack"
+      depends_on:
+        - "review-health"
+      layout:
+        x: 400
+        y: 460
   triggers:
-    # Midnight UTC. Keep lookback_hours equal to the interval between runs so
-    # nothing falls between two reports.
+    - type: "manual"
+      params: {}
+      layout:
+        x: 210
+        y: 100
     - type: "schedule"
       params:
         cron: "0 0 * * *"
-    - type: "manual"
-  tasks:
-    - id: "investigate"
-      type: "llm.investigate"
-      timeout: "20m"
-      params:
-        session_scope: "execution"
-        response_format: "json"
-        message: |
-          Run a read-only health check of these Kubernetes namespaces: {{ Inputs.namespaces }}
-          Lookback window: the last {{ Inputs.lookback_hours | default('24') }} hours.
-
-          Do NOT change anything — no restarts, deletes, scaling or patches. Observe only.
-
-          ## Check, for each namespace
-          1. Pods not Running/Ready: CrashLoopBackOff, Pending, ImagePullBackOff, Error, Evicted.
-          2. Restarts inside the window. For each restarting container give the restart count and
-             the last termination reason; call out every OOMKilled explicitly.
-          3. Deployments and StatefulSets whose ready replicas are below desired.
-          4. Warning events inside the window, grouped by reason. Ignore one-off noise that has
-             already recovered.
-          5. PersistentVolumeClaims not Bound.
-          Also report node conditions (MemoryPressure, DiskPressure, NotReady) only where they affect
-          pods in these namespaces.
-
-          If a namespace does not exist, say so for that namespace and continue with the rest.
-
-          ## Rating
-          - healthy  — nothing above, or only restarts that have since stabilised.
-          - degraded — something is impaired but the service still runs (some restarts or OOMs,
-                       a replica short, recurring warnings).
-          - critical — a workload is down or unavailable, crash-looping, or has zero ready replicas.
-          `overall` is the worst rating across all namespaces.
-
-          ## Output
-          This is posted to Slack. Keep it short and use Slack mrkdwn (*bold*, `code`, - bullets).
-          `report` must contain, in order:
-          - one line per namespace: emoji (:large_green_circle: / :large_yellow_circle: / :red_circle:),
-            `namespace`, and a few words on its state
-          - *OOMs / Restarts* — one bullet per container: `namespace/pod` container, count, reason.
-            Write "None" when there were none.
-          - *Next steps* — at most 3 bullets. Omit this section when everything is healthy.
-
-          Return JSON with exactly these keys:
-          {"overall": "healthy" | "degraded" | "critical", "headline": "one short sentence", "report": "Slack mrkdwn as described above"}
-
-    # When the agent's reply is not valid JSON, `data` is {"raw_text": ...}: the
-    # missing `overall` then reads as "unknown", so the report is always posted
-    # (raw text in place of the formatted body) and never silently dropped.
-    - id: "notify"
-      type: "notifications.im"
-      timeout: "10m"
-      depends_on:
-        - "investigate"
-      if: "{{ 'true' if ((Inputs.notify_when_healthy | default('true') | string | lower) == 'true' or (Tasks['investigate'].output.data.overall | default('unknown')) != 'healthy') else 'false' }}"
-      params:
-        provider: "slack"
-        channel: "{{ Inputs.chat_channel }}"
-        message: |-
-          {% set overall = Tasks['investigate'].output.data.overall | default('unknown') %}{% if overall == 'healthy' %}:large_green_circle:{% elif overall == 'degraded' %}:large_yellow_circle:{% elif overall == 'critical' %}:red_circle:{% else %}:white_circle:{% endif %} *Namespace health* · *{{ overall | upper }}* · last {{ Inputs.lookback_hours | default('24') }}h
-          {{ Tasks['investigate'].output.data.headline | default('') }}
-
-          {{ Tasks['investigate'].output.data.report | default(Tasks['investigate'].output.data.raw_text | default('The investigation returned no report.')) }}
+      layout:
+        x: 590
+        y: 100
+  retry_policy:
+    maximum_attempts: 3
+    initial_interval: "1s"
+    maximum_interval: "60s"
+    backoff_coefficient: 2
