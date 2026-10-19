@@ -1,6 +1,6 @@
 slug: argocd_sync_with_validation
 name: ArgoCD Sync with Validation
-description: Triggers an ArgoCD application sync, monitors the sync status, verifies the health of the deployed application, and notifies the team — with automatic rollback if the sync fails or the app becomes unhealthy.
+description: Triggers an ArgoCD application sync, monitors the sync status, verifies the health of the deployed application, and notifies the team — with automatic rollback if the sync fails or the app becomes unhealthy. Asks for approval in Slack before changing anything.
 category: deployment
 icon: git-merge
 status: ACTIVE
@@ -50,10 +50,22 @@ definition:
         🔄 *Starting ArgoCD sync*
         *App:* {{ Inputs.app_name }}
         *Revision:* {{ Inputs.revision }}
+  - id: approve_sync
+    type: core.approval
+    depends_on:
+    - notify_sync_start
+    params:
+      message: |-
+        Sync *{{ Inputs.app_name }}* to *{{ Inputs.revision }}*?
+        If the app is unhealthy afterwards, it is rolled back automatically.
+      approval_type: instant_message
+      im_provider: slack
+      im_channel: '{{ Inputs.notification_channel }}'
   - id: sync_app
     type: cicd.argocd.cli
     depends_on:
-    - notify_sync_start
+    - approve_sync
+    if: '{{ Tasks.approve_sync.output.status == ''approve'' }}'
     params:
       command: app sync {{ Inputs.app_name }} --revision {{ Inputs.revision }}
       account_id: '{{ Inputs.account_id }}'
