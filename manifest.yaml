@@ -7,7 +7,7 @@
   sha256: 9b3acfbd342198cd58321c09fd48462d19558da1e52804c5967e6d37a1f223ce
 - slug: aws_cost_anomaly_cleanup
   path: templates/aws_cost_anomaly_cleanup.yaml
-  sha256: 4600796ac601b9d1de37e863ae779286b25cf2a301cd95201ede6103e36a4374
+  sha256: b66b9cb2ecd96898c9ad83d55d5c1e6842a69c8c1eb75efea427571f46e77980
 - slug: cleanup_evicted_and_failed_pods
   path: templates/cleanup_evicted_and_failed_pods.yaml
   sha256: d9952e67573780a7db443bd9db5ba593fe6dc8e7c9968cf674a35d5c7fe743d5
@@ -34,7 +34,7 @@
   sha256: fa9ab3516cab4c7f56a8f266c9a1050ca83c3e306ad468c7ab4a11da6d85d356
 - slug: ec2_host_diagnostics
   path: templates/ec2_host_diagnostics.yaml
-  sha256: 98980e8ef3ba2015a626dd3737b9fcd33879903f4eb0eaecb88f1b27dde1f2b4
+  sha256: cc0d7cdf5e330b4ff2c7fc5174ed43bd1596deeb38626609094051bd45c1a09e
 - slug: expand_azure_managed_disk
   path: templates/expand_azure_managed_disk.yaml
   sha256: b3e0524fca21b12e6d0f421c0939e93e13728df0ecc36601b968b3e64eb035a6
@@ -55,7 +55,7 @@
   sha256: 1a18d4ab23b9f07431a0a52e429ff818ad87dc6966d0dedb143b65c7572b7eaa
 - slug: infrastructure_compliance_audit
   path: templates/infrastructure_compliance_audit.yaml
-  sha256: 39e678ca7c5f43dc0c584089ba32136999d55909ccaa520748c396e55ce328c0
+  sha256: 3b572f98c8dbd434550500d196ce276881e79b501e0988f00b69984bc6aa4881
 - slug: ingest_pagerduty_incidents
   path: templates/ingest_pagerduty_incidents.yaml
   sha256: 9ff5e2fd81e62dd6b3f84b418c136f49d9aac04535a1f776433d6a0276b8e705
@@ -76,7 +76,7 @@
   sha256: 08f434e4c2fe5fc6fba73ffedcfacbebef08f5187fb854d94a205b64b4ab5ba4
 - slug: kubernetes_namespace_health_check
   path: templates/kubernetes_namespace_health_check.yaml
-  sha256: 21828f0548d4fc8d48b3273c30019d00ca4988e28a24c51f1fb7ea963c62c725
+  sha256: 1548deae67902b456f23651267fc04c3253dc0e28cab4fce44e1293b7b64e5b3
 - slug: log_anomaly_detector
   path: templates/log_anomaly_detector.yaml
   sha256: eb78242edc64a0beb2ee14e2f6e32d4981811ddae4e319a94a649a5502c5ea1c
@@ -145,7 +145,7 @@
   sha256: 74b925e9d7b9d2ed22d3118bee305e3be83c8e08ba919483eebe724c069dd329
 - slug: sqlserver_daily_health_digest
   path: templates/sqlserver_daily_health_digest.yaml
-  sha256: d1b67d222495c946466e640145b005ec9d8bbda2f119c309dc806cf7512dc0b2
+  sha256: 83aa1efab5232fba42f941afcb6c49faf139c0261a56eebf97c5dce09dea75e7
 - slug: ssl_certificate_monitor
   path: templates/ssl_certificate_monitor.yaml
   sha256: f2bd429eba192214050ea34b53c34993b98a1ab85fdbdd6416c84fed2892aef7
