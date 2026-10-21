@@ -19,8 +19,7 @@ definition:
     required: true
   - id: aws_region
     type: string
-    required: false
-    default: us-east-1
+    required: true
   - id: ticket_integration_id
     type: string
     required: false
@@ -115,3 +114,11 @@ template_variables:
   required: false
   type: integration
   group: Integrations
+- id: aws_region
+  input_ref: aws_region
+  display_name: AWS Region
+  help_text: AWS region to audit
+  placeholder: us-east-1
+  required: true
+  type: string
+  group: AWS

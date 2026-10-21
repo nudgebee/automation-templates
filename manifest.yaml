@@ -7,7 +7,7 @@
   sha256: 9b3acfbd342198cd58321c09fd48462d19558da1e52804c5967e6d37a1f223ce
 - slug: aws_cost_anomaly_cleanup
   path: templates/aws_cost_anomaly_cleanup.yaml
-  sha256: 5c3e523062abf96226e7cd2228d2987d71943ec7c014c16b6719e2ce623966bb
+  sha256: 44aa0244cebc99667ee11e5c0669f5bd807c84fc41b0b5f23994ac1f1788b3a7
 - slug: cleanup_evicted_and_failed_pods
   path: templates/cleanup_evicted_and_failed_pods.yaml
   sha256: d9952e67573780a7db443bd9db5ba593fe6dc8e7c9968cf674a35d5c7fe743d5
@@ -34,7 +34,7 @@
   sha256: fa9ab3516cab4c7f56a8f266c9a1050ca83c3e306ad468c7ab4a11da6d85d356
 - slug: ec2_host_diagnostics
   path: templates/ec2_host_diagnostics.yaml
-  sha256: 98980e8ef3ba2015a626dd3737b9fcd33879903f4eb0eaecb88f1b27dde1f2b4
+  sha256: cc0d7cdf5e330b4ff2c7fc5174ed43bd1596deeb38626609094051bd45c1a09e
 - slug: expand_azure_managed_disk
   path: templates/expand_azure_managed_disk.yaml
   sha256: b3e0524fca21b12e6d0f421c0939e93e13728df0ecc36601b968b3e64eb035a6
@@ -55,7 +55,7 @@
   sha256: 8d8fbf7218b7122b06e5323bfe2f7c73393a9f1dcf7f824cccc07914beaea070
 - slug: infrastructure_compliance_audit
   path: templates/infrastructure_compliance_audit.yaml
-  sha256: 82a7f52ae2455546a1806be2647087080ccdbe38be20b513cd09cfa1780bdf32
+  sha256: 365b3152dd266f03f7940aeffb752a2d2367557cfc4be9e73acb64a0696c5444
 - slug: ingest_pagerduty_incidents
   path: templates/ingest_pagerduty_incidents.yaml
   sha256: 9ff5e2fd81e62dd6b3f84b418c136f49d9aac04535a1f776433d6a0276b8e705
@@ -76,7 +76,7 @@
   sha256: 1c5e8cedf774ade3f591a7b446896d821345666fa87ea5f9946592feb29061cd
 - slug: kubernetes_namespace_health_check
   path: templates/kubernetes_namespace_health_check.yaml
-  sha256: 21828f0548d4fc8d48b3273c30019d00ca4988e28a24c51f1fb7ea963c62c725
+  sha256: 1548deae67902b456f23651267fc04c3253dc0e28cab4fce44e1293b7b64e5b3
 - slug: log_anomaly_detector
   path: templates/log_anomaly_detector.yaml
   sha256: 7c7e2eb8638c6a978f1ea2efb466212b47e314ad35f049c2c7139b5990adca47
