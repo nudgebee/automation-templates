@@ -1,0 +1,49 @@
+schema: bee/v1
+name: k8s_upgrade                       # canonical: snake_case, fixed forever
+display_name: K8s Upgrade Bee
+version: 1.0.0
+description: Does the work of a Kubernetes minor version upgrade, cluster by cluster. Finds what blocks it, fixes those as pull requests in the repository that deploys each one, hands you the exact upgrade commands, and checks the result before the next cluster.
+author: { name: Nudgebee }
+
+install:
+  account_types: [k8s]
+  scope: [namespaces]
+
+integrations:
+  - id: tracker
+    types: [github, gitlab, jira]
+    access: write
+    required: true
+    why: Keeps one tracking issue per cluster upgrade, the plan, and comments on it after every run.
+  - id: repos
+    types: [github, gitlab]
+    access: write
+    required: false
+    why: Opens the pull request that fixes upgrade blockers in the repository that deploys them. Asks every time.
+
+settings:
+  tracker_project:
+    type: string
+    title: Tracking project
+    description: Where the tracking issues go. A repository as owner/name for GitHub or GitLab, or a Jira project key.
+    required: true
+  notice_days:
+    type: number
+    title: Start before end of support
+    description: Start an upgrade plan this many days before the cluster's version leaves standard support.
+    default: 90
+  verify_hours:
+    type: number
+    title: Watch after an upgrade
+    description: Hours to compare alerts, restarts and readiness after an upgrade before calling it verified.
+    default: 24
+
+output:                                 # summary, evidence and runs are built in
+  stage: { enum: [nothing_due, planning, fixing, ready, upgrading, verifying, verified, regressed, unsure] }
+  verdict: { enum: [verified, regressed, unsure, none] }
+
+budget:
+  # Uncached input + output per run; input read from the prompt cache does not count.
+  max_tokens_per_run: 400000
+  max_runs_per_day: 2
+  timeout: 15m

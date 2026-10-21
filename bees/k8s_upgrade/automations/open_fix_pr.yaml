@@ -1,0 +1,121 @@
+# One of the bee's automations: opens, or adds to, the one pull request for a plan in one repo.
+# Tier: unrestricted (scm.github.cli runs a script), so it asks first everywhere. It never merges.
+# A stable branch per plan and repo means a re-run adds to the open pull request instead of
+# opening another, and a pull request someone closed is never reopened.
+# v1 limits: github.com only (the step sets no GH_HOST for GitHub Enterprise), and the step's
+# image is amd64-only.
+summary: Open or add to the pull request that fixes upgrade blockers in one repository.
+slug: k8s_upgrade__open_fix_pr
+name: "Open or add to the upgrade fix pull request"
+description: "Makes up to three exact text replacements on the plan's branch and opens its pull request, or adds a commit to the open one. Never merges, never force-pushes, never reopens a declined pull request."
+version: 1.0.0
+definition:
+  version: "v1"
+  inputs:
+    - { id: repo, type: string, required: true, description: "Repository as owner/name" }
+    - { id: plan_key, type: string, required: true, description: "Stable key of the plan, e.g. <cluster>-1.31-1.32; the branch is k8s-upgrade/<plan_key>" }
+    - { id: title, type: string, required: true, description: "Pull request title" }
+    - { id: why, type: string, required: true, description: "What each change fixes and the evidence, with sources" }
+    - { id: path1, type: string, required: true, description: "Path of a file to change in the repository" }
+    - { id: old1, type: string, required: true, description: "Exact text in path1 to replace; must occur exactly once. Copy it from the file, whitespace included" }
+    - { id: new1, type: string, required: true, description: "The text that replaces old1" }
+    - { id: path2, type: string, required: false, default: "", description: "Optional second change: path" }
+    - { id: old2, type: string, required: false, default: "", description: "Exact text in path2 to replace (exactly once)" }
+    - { id: new2, type: string, required: false, default: "", description: "Replacement for old2" }
+    - { id: path3, type: string, required: false, default: "", description: "Optional third change: path" }
+    - { id: old3, type: string, required: false, default: "", description: "Exact text in path3 to replace (exactly once)" }
+    - { id: new3, type: string, required: false, default: "", description: "Replacement for old3" }
+  triggers:
+    - type: manual
+  tasks:
+    - id: open_pr
+      type: scm.github.cli
+      params:
+        integration_id: "{{ Install.integrations.repos.id }}"
+        # Inputs reach the script base64-encoded and are checked before use, so no input can
+        # change the commands that run.
+        command: |
+          set -euo pipefail
+          dec() { printf %s "$1" | base64 -d; }
+          REPO=$(dec '{{ Inputs.repo | b64encode }}')
+          KEY=$(dec '{{ Inputs.plan_key | b64encode }}')
+          TITLE=$(dec '{{ Inputs.title | b64encode }}')
+          WHY=$(dec '{{ Inputs.why | b64encode }}')
+          [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "result=refused reason=repo must be owner/name"; exit 1; }
+          [[ "$KEY" =~ ^[a-z0-9][a-z0-9._-]{0,79}$ ]] || { echo "result=refused reason=plan_key must be lowercase letters, digits, dot, dash or underscore"; exit 1; }
+          # One branch per plan and repo. A merged pull request finished one round, so the next
+          # round goes on <branch>-2, -3, ...; an open one is added to; a declined one stops here.
+          # A failed lookup stops the script: guessing "none" would open a second pull request.
+          BASE_BRANCH="k8s-upgrade/$KEY"
+          PREV="NONE"
+          for ROUND in 1 2 3 4 5 6 7 8 9; do
+            BRANCH="$BASE_BRANCH"; [ "$ROUND" = 1 ] || BRANCH="$BASE_BRANCH-$ROUND"
+            PREV=$(gh pr list --repo "$REPO" --head "$BRANCH" --state all --limit 1 --json state,url \
+              --jq 'if length == 0 then "NONE" else (.[0] | "\(.state) \(.url)") end')
+            case "$PREV" in
+              MERGED*) continue ;;
+              CLOSED*) echo "result=declined url=${PREV#* }"; exit 0 ;;
+              *) break ;;
+            esac
+          done
+          case "$PREV" in MERGED*) echo "result=refused reason=too many rounds for this plan"; exit 1 ;; esac
+
+          # The step's working directory is read-only; clone into a fresh temp directory.
+          cd "$(mktemp -d)"
+          gh auth setup-git
+          gh repo clone "$REPO" work -- --quiet --depth 1
+          cd work
+          if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+            # The branch exists (its pull request is open, or opening it failed last time): add to it.
+            git fetch -q --depth 1 origin "$BRANCH"
+            git checkout -q -B "$BRANCH" FETCH_HEAD
+          else
+            git checkout -q -b "$BRANCH"
+          fi
+          ROOT=$(pwd -P)
+
+          # One exact replacement: old must occur exactly once in an existing file. Patterns are
+          # quoted, so bash matches them literally. A change that is already in place is a no-op.
+          edit_file() {
+            local file="$1" old="${2%x}" new="${3%x}"
+            [ -n "$file" ] || return 0
+            [[ "$file" =~ ^[A-Za-z0-9_./-]+$ && "$file" != /* && "$file" != *..* ]] || { echo "result=refused reason=bad path $file"; exit 1; }
+            case "$file" in .git/*|*/.git/*|.github/workflows/*|.gitlab-ci.yml) echo "result=refused reason=path not allowed $file"; exit 1 ;; esac
+            [ -f "$file" ] && [ ! -L "$file" ] || { echo "result=refused reason=not a regular file in the repository $file"; exit 1; }
+            local dir; dir=$(cd "$(dirname "$file")" && pwd -P)
+            case "$dir/" in "$ROOT"/*) ;; *) echo "result=refused reason=path leaves the repository $file"; exit 1 ;; esac
+            [ -n "$old" ] || { echo "result=refused reason=empty old text for $file"; exit 1; }
+            local content; content=$(cat "$file"; printf x); content=${content%x}
+            if [[ "$content" != *"$old"* ]]; then
+              # Applied already (a re-run on the open pull request's branch): old is in the default
+              # branch's file exactly once, gone here, and new is here.
+              local base; base=$(git show "origin/HEAD:$file" 2>/dev/null; printf x); base=${base%x}
+              if [[ -n "$new" && "$content" == *"$new"* && "$base" == *"$old"* ]]; then
+                local base_rest=${base#*"$old"}
+                [[ "$base_rest" != *"$old"* ]] && return 0
+              fi
+              echo "result=refused reason=old text not found in $file"; exit 1
+            fi
+            local rest=${content#*"$old"}
+            [[ "$rest" != *"$old"* ]] || { echo "result=refused reason=old text occurs more than once in $file"; exit 1; }
+            printf %s "${content%%"$old"*}$new$rest" > "$file"
+          }
+          edit_file "$(dec '{{ Inputs.path1 | b64encode }}')" "$(dec '{{ Inputs.old1 | b64encode }}'; printf x)" "$(dec '{{ Inputs.new1 | b64encode }}'; printf x)"
+          edit_file "$(dec '{{ Inputs.path2 | default("") | b64encode }}')" "$(dec '{{ Inputs.old2 | default("") | b64encode }}'; printf x)" "$(dec '{{ Inputs.new2 | default("") | b64encode }}'; printf x)"
+          edit_file "$(dec '{{ Inputs.path3 | default("") | b64encode }}')" "$(dec '{{ Inputs.old3 | default("") | b64encode }}'; printf x)" "$(dec '{{ Inputs.new3 | default("") | b64encode }}'; printf x)"
+
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "result=unchanged url=${PREV#OPEN }"; exit 0
+          fi
+          git add -A
+          git -c user.name="K8s Upgrade Bee" -c user.email="k8s_upgrade@bees.invalid" commit -q -m "$TITLE"
+          git push -q origin "$BRANCH"
+          if [[ "$PREV" == OPEN* ]]; then
+            echo "result=updated url=${PREV#OPEN }"
+          else
+            URL=$(gh pr create --repo "$REPO" --head "$BRANCH" --title "$TITLE" --body "Opened by K8s Upgrade Bee.
+
+          $WHY")
+            echo "result=created url=$URL"
+          fi
+  timeout: "10m"
