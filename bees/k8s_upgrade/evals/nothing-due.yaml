@@ -1,0 +1,5 @@
+name: Version far from end of support, no open plan
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: none
+  runs: []

@@ -1,0 +1,5 @@
+name: A FlowSchema written as flowcontrol.apiserver.k8s.io/v1beta3 before upgrading to 1.32, deployed by Argo CD from a repo
+trigger: fixtures/manual-run.json
+expect:
+  verdict: none
+  runs: [open_plan, open_fix_pr, update_plan]

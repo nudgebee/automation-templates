@@ -1,0 +1,5 @@
+name: The run starts while the agent is reconnecting after an upgrade; cluster reads fail
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: none
+  runs: [update_plan]

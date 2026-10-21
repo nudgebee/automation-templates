@@ -1,0 +1,5 @@
+name: After the upgrade a workload stays not ready through the window
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: regressed
+  runs: [update_plan]

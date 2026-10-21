@@ -17,6 +17,8 @@ manifest.yaml                  # generated index [{slug, path, sha256}] — runb
 schema/template.schema.json    # JSON Schema; CI validates every template
 scripts/gen_manifest.py        # regenerate manifest.yaml (run before committing template changes)
 scripts/validate.py            # local equivalent of the CI validation (schema + workflow semantics)
+bees/<name>/                   # one Worker Bee pack per folder (see "Worker Bees" below)
+.bee-catalogue/catalogue.yaml  # the bees this repo offers, each pinned to a version and checksum
 ```
 
 ## Validation layers
@@ -54,6 +56,18 @@ When the engine registers a new task type, add it to the `TASK_TYPES` set in
    ```
 5. Open a PR. CI re-runs validation and checks the manifest is current. Merges
    require review (see `CODEOWNERS`).
+
+## Worker Bees
+
+A bee is an AI teammate for one narrow job, packaged as a folder under `bees/`:
+- `.bee/bee.yaml`: what it is, what it needs and its budget;
+- `agents/`: its prompt and read-only tools;
+- `skills/`: its procedures;
+- `automations/`: the only way it changes anything, each one gated by the install's "how far" dial;
+- `triggers/`: when it wakes;
+- `evals/`: test cases.
+
+`.bee-catalogue/catalogue.yaml` lists the bees and pins each one's version and checksum. runbook-server checks every pack on sync and refuses any that doesn't match. After changing a pack, bump its `version` and update the checksum (runbook-server's `beelint` prints it).
 
 ## How it's consumed
 

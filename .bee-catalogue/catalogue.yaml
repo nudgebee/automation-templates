@@ -1,0 +1,10 @@
+# Worker Bees this source offers. Each entry names a bee folder under bees/ and pins its
+# version and checksum; runbook-server checks both on every sync (`beelint` prints the checksum).
+name: nudgebee
+owner: { name: Nudgebee }
+bees:
+  - name: k8s_upgrade
+    source: ./bees/k8s_upgrade
+    version: 1.0.0
+    checksum: 23eb1f4480f30047bc48c0b6f829faadef5b6e89beda23bc00312ce39d0eb2a6
+    tags: [kubernetes, upgrade]
