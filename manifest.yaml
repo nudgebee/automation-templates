@@ -14,6 +14,9 @@
 - slug: cordon_and_drain_kubernetes_node
   path: templates/cordon_and_drain_kubernetes_node.yaml
   sha256: 6af890543636e15289a31a135b8b1b7f029a9bd73596eb4016d4b63b04729901
+- slug: cost_anomaly_ticket
+  path: templates/cost_anomaly_ticket.yaml
+  sha256: 95699a0093b4e5dc4f5737c96a9950e509ed79d183ec3f9b75bf77d498c03503
 - slug: create_ticket_from_event
   path: templates/create_ticket_from_event.yaml
   sha256: fa3366bdb77b48f436d1ef2edafde1058231bfa36ca42ceaf7ac48c98e175629
