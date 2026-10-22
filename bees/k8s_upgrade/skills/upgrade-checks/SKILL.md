@@ -13,8 +13,15 @@ Target = current minor + 1. Never plan a jump of more than one minor.
 ## 0. Versions and support
 - Current version: `nudgebee_agent_health_get` (`k8s_version`, `k8s_provider`), or `kubectl version -o json` (`serverVersion`).
 - End of standard support:
-  - EKS: `aws eks describe-cluster-versions --cluster-versions <x.y>` (`endOfStandardSupportDate`). Needs a read grant on the linked AWS account.
-  - Elsewhere, or when that fails: say "end of support unknown" and plan only when a person started the run.
+  - **Provider API first, when the run can read the cloud account.** EKS: `aws eks describe-cluster-versions --cluster-versions <x.y>` (`endOfStandardSupportDate`).
+  - **Otherwise, endoflife.date's data on GitHub** (public, through `github_execute`):
+    `gh api repos/endoflife-date/endoflife.date/contents/products/<product>.md --jq .content | base64 -d`
+    - `<product>` is `google-kubernetes-engine` (GKE), `amazon-eks` (EKS), `azure-kubernetes-service` (AKS), or `kubernetes` (anything else).
+    - Find the `releaseCycle` matching the cluster's minor version.
+    - `eoas` is the end of standard support. `eol` is the end of all support (or of extended support).
+    - Cite `https://github.com/endoflife-date/endoflife.date/blob/master/products/<product>.md`.
+  - **Due** when the end of standard support is within `notice_days`, or already past.
+  - Only when neither source has the version: say "end of support unknown", and plan only when a person started the run.
 
 ## 1. What the scanners already found (quote these verbatim)
 `recommendation_execute`:
