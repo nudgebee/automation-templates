@@ -5,6 +5,6 @@ owner: { name: Nudgebee }
 bees:
   - name: k8s_upgrade
     source: ./bees/k8s_upgrade
-    version: 1.0.0
-    checksum: 23eb1f4480f30047bc48c0b6f829faadef5b6e89beda23bc00312ce39d0eb2a6
+    version: 1.0.1
+    checksum: 16672b046383e92e72d9d5512d5ad281ce6c42b7a46a2cc62ee080dc9ed6cfc9
     tags: [kubernetes, upgrade]

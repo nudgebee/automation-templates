@@ -1,7 +1,7 @@
 schema: bee/v1
 name: k8s_upgrade                       # canonical: snake_case, fixed forever
 display_name: K8s Upgrade Bee
-version: 1.0.0
+version: 1.0.1
 description: Does the work of a Kubernetes minor version upgrade, cluster by cluster. Finds what blocks it, fixes those as pull requests in the repository that deploys each one, hands you the exact upgrade commands, and checks the result before the next cluster.
 author: { name: Nudgebee }
 
