@@ -23,7 +23,7 @@ template_variables:
     input_ref: "slack_channel"
     display_name: "Slack Channel"
     help_text: "Slack channel ID that receives the health report."
-    placeholder: "C09UZE6Q2V9"
+    placeholder: "C0123456789"
     required: true
     type: "string"
 definition:
