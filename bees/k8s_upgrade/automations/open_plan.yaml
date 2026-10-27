@@ -1,0 +1,25 @@
+# Opens the cluster's tracking issue: the upgrade plan. Read tier (it only writes to the tracker),
+# so it runs without asking. The bee opens one per cluster and from-to version, and finds it again
+# before opening another.
+summary: Open the tracking issue for one cluster's upgrade.
+slug: k8s_upgrade__open_plan
+name: "Open the upgrade tracking issue"
+description: "Creates the tracking issue that holds one cluster's upgrade plan."
+version: 1.0.0
+definition:
+  version: "v1"
+  inputs:
+    - { id: project_key, type: string, required: true, description: "The tracker_project setting: owner/name, or a Jira key" }
+    - { id: title, type: string, required: true, description: "K8s upgrade: <cluster> <from> → <to>" }
+    - { id: description, type: string, required: true, description: "The plan: versions, blockers with evidence, next step" }
+  triggers:
+    - type: manual
+  tasks:
+    - id: create
+      type: tickets.create
+      params:
+        integration_id: "{{ Install.integrations.tracker.id }}"
+        project_key: "{{ Inputs.project_key }}"
+        title: "{{ Inputs.title }}"
+        description: "{{ Inputs.description }}"
+  timeout: "2m"

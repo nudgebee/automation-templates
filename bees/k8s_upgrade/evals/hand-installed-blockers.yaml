@@ -1,0 +1,5 @@
+name: A hand-installed Helm release with kubeVersion <1.32.0-0 and a PDB with maxUnavailable 0, no repo
+trigger: fixtures/manual-run.json
+expect:
+  verdict: none
+  runs: [open_plan, update_plan]
