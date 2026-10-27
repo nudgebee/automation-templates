@@ -1,0 +1,9 @@
+# Once a day the bee looks at where each cluster's upgrade stands and does the next step.
+# A person can also start it by hand. It never waits inside a run.
+triggers:
+  - type: schedule
+    params:
+      cron: "0 6 * * *"
+      evidence: "Daily upgrade check."
+    dedupe: "daily"
+    window: 12h

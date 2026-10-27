@@ -1,0 +1,23 @@
+# Adds this run's results to the tracking issue. Read tier: runs without asking.
+summary: Add a run's results to the cluster's tracking issue.
+slug: k8s_upgrade__update_plan
+name: "Comment on the upgrade tracking issue"
+description: "Adds the checks run, blockers, pull requests, asks and numbers to the tracking issue."
+version: 1.0.0
+definition:
+  version: "v1"
+  inputs:
+    - { id: project_key, type: string, required: true, description: "The tracker_project setting" }
+    - { id: ticket_id, type: string, required: true, description: "The tracking issue's id or number" }
+    - { id: comment, type: string, required: true, description: "This run's results" }
+  triggers:
+    - type: manual
+  tasks:
+    - id: comment
+      type: tickets.add_comment
+      params:
+        integration_id: "{{ Install.integrations.tracker.id }}"
+        project_key: "{{ Inputs.project_key }}"
+        ticket_id: "{{ Inputs.ticket_id }}"
+        comment: "{{ Inputs.comment }}"
+  timeout: "2m"
