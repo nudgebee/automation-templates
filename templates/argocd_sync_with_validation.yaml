@@ -30,6 +30,9 @@ definition:
   - id: account_id
     type: string
     required: false
+  - id: argocd_integration_id
+    type: string
+    required: true
   triggers:
   - type: manual
   - type: webhook
@@ -37,6 +40,7 @@ definition:
   - id: get_current_state
     type: cicd.argocd.cli
     params:
+      integration_id: '{{ Inputs.argocd_integration_id }}'
       command: app get {{ Inputs.app_name }} -o json
       account_id: '{{ Inputs.account_id }}'
   - id: notify_sync_start
@@ -55,6 +59,7 @@ definition:
     depends_on:
     - notify_sync_start
     params:
+      integration_id: '{{ Inputs.argocd_integration_id }}'
       command: app sync {{ Inputs.app_name }} --revision {{ Inputs.revision }}
       account_id: '{{ Inputs.account_id }}'
   - id: wait_sync
@@ -62,6 +67,7 @@ definition:
     depends_on:
     - sync_app
     params:
+      integration_id: '{{ Inputs.argocd_integration_id }}'
       command: app wait {{ Inputs.app_name }} --timeout 300
       account_id: '{{ Inputs.account_id }}'
     failure_policy:
@@ -77,6 +83,7 @@ definition:
     depends_on:
     - wait_health
     params:
+      integration_id: '{{ Inputs.argocd_integration_id }}'
       command: app get {{ Inputs.app_name }} -o json
       account_id: '{{ Inputs.account_id }}'
   - id: evaluate_health
@@ -110,6 +117,7 @@ definition:
   - id: rollback
     type: cicd.argocd.cli
     params:
+      integration_id: '{{ Inputs.argocd_integration_id }}'
       command: app rollback {{ Inputs.app_name }}
       account_id: '{{ Inputs.account_id }}'
     hooks:
@@ -129,3 +137,10 @@ template_variables:
   required: true
   type: string
   group: Notifications
+- id: argocd_integration
+  input_ref: argocd_integration_id
+  display_name: ArgoCD Integration
+  help_text: ArgoCD integration the sync, health check and rollback run through
+  required: true
+  type: integration
+  group: Integrations

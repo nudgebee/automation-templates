@@ -102,17 +102,8 @@ definition:
     - tcp_host3
     params:
       scriptType: javascript
-      expression: 'var lines = []; function status(name, ping, tcp) { var s = (ping === ''COMPLETED'' && tcp === ''COMPLETED'') ? ''🟢 UP'' : (ping === ''COMPLETED'' || tcp === ''COMPLETED'') ? ''🟡 DEGRADED'' : ''🔴 DOWN''; lines.push(s + '' | '' + name); } status(host1, ping1, tcp1); if (host2) status(host2, ping2, tcp2); if (host3) status(host3, ping3, tcp3); ({ status_lines: lines, has_issues: lines.some(function(l) { return l.indexOf(''DOWN'') >= 0 || l.indexOf(''DEGRADED'') >= 0; }) })'
-      input:
-        host1: '{{ Inputs.host_1 }}'
-        ping1: '{{ Tasks.ping_host1.status }}'
-        tcp1: '{{ Tasks.tcp_host1.status }}'
-        host2: '{{ Inputs.host_2 }}'
-        ping2: '{{ Tasks.ping_host2.status }}'
-        tcp2: '{{ Tasks.tcp_host2.status }}'
-        host3: '{{ Inputs.host_3 }}'
-        ping3: '{{ Tasks.ping_host3.status }}'
-        tcp3: '{{ Tasks.tcp_host3.status }}'
+      expression: 'var lines = []; function status(name, ping, tcp) { var s = (ping === ''COMPLETED'' && tcp === ''COMPLETED'') ? ''🟢 UP'' : (ping === ''COMPLETED'' || tcp === ''COMPLETED'') ? ''🟡 DEGRADED'' : ''🔴 DOWN''; lines.push(s + '' | '' + name); } status(data.host1, data.ping1, data.tcp1); if (data.host2) status(data.host2, data.ping2, data.tcp2); if (data.host3) status(data.host3, data.ping3, data.tcp3); ({ status_lines: lines, has_issues: lines.some(function(l) { return l.indexOf(''DOWN'') >= 0 || l.indexOf(''DEGRADED'') >= 0; }) })'
+      input: '{"host1": {{ Inputs.host_1 | default('''') | tojson }}, "ping1": {{ Tasks.ping_host1.status | default('''') | tojson }}, "tcp1": {{ Tasks.tcp_host1.status | default('''') | tojson }}, "host2": {{ Inputs.host_2 | default('''') | tojson }}, "ping2": {{ Tasks.ping_host2.status | default('''') | tojson }}, "tcp2": {{ Tasks.tcp_host2.status | default('''') | tojson }}, "host3": {{ Inputs.host_3 | default('''') | tojson }}, "ping3": {{ Tasks.ping_host3.status | default('''') | tojson }}, "tcp3": {{ Tasks.tcp_host3.status | default('''') | tojson }}}'
   - id: post_status
     type: notifications.im
     depends_on:

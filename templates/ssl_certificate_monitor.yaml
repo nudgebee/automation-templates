@@ -23,10 +23,6 @@ definition:
   - id: email_recipients
     type: string
     required: false
-  - id: cron_schedule
-    type: string
-    required: false
-    default: 0 9 * * *
   - id: ticket_integration_id
     type: string
     required: false
@@ -36,7 +32,7 @@ definition:
   triggers:
   - type: schedule
     params:
-      cron: '{{ Inputs.cron_schedule }}'
+      cron: 0 9 * * *
   - type: manual
   tasks:
   - id: parse_domains
@@ -116,11 +112,3 @@ template_variables:
   required: false
   type: string
   group: Notifications
-- id: cron_schedule
-  input_ref: cron_schedule
-  display_name: Check Schedule
-  help_text: Cron expression for how often to check
-  placeholder: 0 9 * * *
-  required: false
-  type: string
-  group: Schedule

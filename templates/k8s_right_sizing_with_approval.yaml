@@ -1,6 +1,6 @@
 slug: k8s_right_sizing_with_approval
 name: K8s Right-Sizing with Approval
-description: Generates vertical right-sizing recommendations for a Kubernetes workload, posts a summary with projected savings to Slack for team approval, and applies the changes only after explicit approval.
+description: Posts a Kubernetes workload's current CPU and memory to Slack for team approval, and applies vertical right-sizing (up or down) only after explicit approval.
 category: kubernetes
 icon: sliders
 status: ACTIVE
@@ -29,6 +29,10 @@ definition:
   - id: account_id
     type: string
     required: false
+  - id: direction
+    type: string
+    required: true
+    default: down
   triggers:
   - type: manual
   - type: schedule
@@ -40,25 +44,15 @@ definition:
     params:
       command: get {{ Inputs.workload_kind | lower }} {{ Inputs.workload_name }} -n {{ Inputs.namespace }} -o jsonpath='{.spec.template.spec.containers[*].resources}'
       account_id: '{{ Inputs.account_id }}'
-  - id: generate_recommendation
-    type: k8s.vertical_rightsize
-    depends_on:
-    - get_current_resources
-    params:
-      namespace: '{{ Inputs.namespace }}'
-      name: '{{ Inputs.workload_name }}'
-      kind: '{{ Inputs.workload_kind }}'
-      account_id: '{{ Inputs.account_id }}'
   - id: summarize
     type: llm.summary
     depends_on:
-    - generate_recommendation
+    - get_current_resources
     params:
       message: |-
-        Summarize this K8s right-sizing recommendation in a concise, human-readable format. Include current vs recommended resources and estimated savings.
+        Summarize these K8s container resources in a concise, human-readable format, and say what scaling CPU and memory {{ Inputs.direction }} by 20% would change.
 
         Current: {{ Tasks.get_current_resources.output }}
-        Recommendation: {{ Tasks.generate_recommendation.output | tojson }}
   - id: request_approval
     type: core.approval
     depends_on:
@@ -70,7 +64,7 @@ definition:
 
         {{ Tasks.summarize.output.response }}
 
-        Approve to apply these changes?
+        Approve to scale its CPU and memory *{{ Inputs.direction }}* by 20%?
       approval_type: instant_message
       im_provider: slack
       im_channel: '{{ Inputs.approval_channel }}'
@@ -87,6 +81,11 @@ definition:
       name: '{{ Inputs.workload_name }}'
       kind: '{{ Inputs.workload_kind }}'
       account_id: '{{ Inputs.account_id }}'
+      direction: '{{ Inputs.direction }}'
+      cpu:
+        change_pct: 20
+      memory:
+        change_pct: 20
     hooks:
       success:
       - type: notifications.im
@@ -124,3 +123,13 @@ template_variables:
   required: false
   type: account
   group: Infrastructure
+- id: direction
+  input_ref: direction
+  display_name: Direction
+  help_text: Scale the workload's CPU and memory down (save cost) or up (more headroom)
+  required: true
+  type: string
+  options:
+  - down
+  - up
+  group: Settings
