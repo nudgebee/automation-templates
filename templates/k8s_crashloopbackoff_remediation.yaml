@@ -1,6 +1,6 @@
 slug: k8s_crashloopbackoff_remediation
 name: K8s CrashLoopBackOff Remediation
-description: Detects CrashLoopBackOff pods, gathers logs, uses AI to diagnose the root cause, and routes to the appropriate fix — OOM triggers vertical right-sizing, known errors restart the workload, unknown issues escalate to the team.
+description: Detects CrashLoopBackOff pods, gathers logs, uses AI to diagnose the root cause, and routes to the appropriate fix — OOM triggers vertical right-sizing, known errors restart the workload, unknown issues escalate to the team. Asks for approval in Slack before changing anything.
 category: kubernetes
 icon: kubernetes
 status: ACTIVE
@@ -82,10 +82,23 @@ definition:
         🔍 *CrashLoopBackOff Diagnosed*
         *Workload:* {{ Inputs.namespace }}/{{ Inputs.workload_name }}
         *Diagnosis:* {{ Tasks.diagnose.output.response }}
+  - id: approve_remediation
+    type: core.approval
+    depends_on:
+    - notify_diagnosis
+    params:
+      message: |-
+        *CrashLoopBackOff remediation for {{ Inputs.namespace }}/{{ Inputs.workload_name }}*
+        Diagnosis: {{ Tasks.diagnose.output.response }}
+        Approve to scale up memory (OOMKilled) or restart the {{ Inputs.workload_kind }}.
+      approval_type: instant_message
+      im_provider: slack
+      im_channel: '{{ Inputs.notification_channel }}'
   - id: route_action
     type: core.switch
     depends_on:
-    - diagnose
+    - approve_remediation
+    if: '{{ Tasks.approve_remediation.output.status == ''approve'' }}'
     params:
       expression: '{{ ''OOMKilled'' if ''OOMKill'' in Tasks.diagnose.output.response else ''Unknown'' }}'
       cases:

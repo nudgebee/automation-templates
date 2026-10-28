@@ -83,6 +83,15 @@ TASK_TYPES = {
 # Triggers the engine accepts (model.ValidateWorkflowTrigger).
 TRIGGER_TYPES = {"schedule", "manual", "webhook", "event", "optimization"}
 
+# Tasks that change a live workload. A template that can start without a person
+# (webhook / event / schedule) must ask a person first (#41480).
+CHANGE_TASK_TYPES = {
+    "k8s.workload_restart", "k8s.vertical_rightsize", "k8s.horizontal_rightsize",
+    "k8s.pv_rightsize", "k8s.pod_delete", "k8s.node_graceful_shutdown",
+}
+ARGOCD_CHANGE_RE = re.compile(r"\bapp\s+(sync|rollback|delete|set|patch)\b")
+UNATTENDED_TRIGGERS = {"webhook", "event", "schedule"}
+
 # Task id: alphanumeric / hyphen / underscore, 3-64 chars (model.ValidateTaskID).
 TASK_ID_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 # Workflow name: starts/ends alphanumeric, spaces/hyphens/underscores inside,
@@ -142,6 +151,19 @@ def validate_workflow_semantics(doc, rel):
                 errs.append(f"task {tid!r}: self-dependency")
             elif dep not in ids:
                 errs.append(f"task {tid!r}: depends_on missing task {dep!r}")
+
+    unattended = sorted({tr.get("type") for tr in definition.get("triggers") or []
+                         if isinstance(tr, dict)} & UNATTENDED_TRIGGERS)
+    has_approval = any(isinstance(t, dict) and t.get("type") == "core.approval" for t in tasks)
+    if unattended and not has_approval:
+        for t in tasks:
+            if not isinstance(t, dict):
+                continue
+            cmd = str((t.get("params") or {}).get("command", ""))
+            if t.get("type") in CHANGE_TASK_TYPES or (
+                    t.get("type") == "cicd.argocd.cli" and ARGOCD_CHANGE_RE.search(cmd)):
+                errs.append(f"task {t.get('id')!r} changes a live workload and the template can start "
+                            f"without a person ({', '.join(unattended)}); add a core.approval before it")
 
     # Cycle detection over depends_on (DFS), matching the engine.
     adj = {t.get("id"): list(t.get("depends_on") or []) for t in tasks if isinstance(t, dict)}
