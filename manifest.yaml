@@ -92,6 +92,9 @@
 - slug: patch_container_resource_limits
   path: templates/patch_container_resource_limits.yaml
   sha256: 96420291adfe678e7def3442e464141927e8e524f8355a78d69932ca85aa1fe8
+- slug: postgres_query_regression_watch
+  path: templates/postgres_query_regression_watch.yaml
+  sha256: 0a3385dff0d6316a4ab63993ed963cecdea3a9260bb81372a607ee92dce1cb2d
 - slug: purge_sqs_queue
   path: templates/purge_sqs_queue.yaml
   sha256: 97b7997c28699f6bd082122300348287fd5be1c75e2fdcc402c118b0de77fcca

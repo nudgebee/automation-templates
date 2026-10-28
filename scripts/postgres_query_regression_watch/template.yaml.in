@@ -1,0 +1,247 @@
+slug: postgres_query_regression_watch
+name: Cloud SQL Postgres Query Regression Watch
+description: Every few hours, finds Postgres queries on a Cloud SQL instance that got slower and stayed slower, compared with the same hours on the previous week, from Cloud SQL Query Insights. For each new regression it collects what changed (instance operations, table statistics and indexes, sampled plans), asks AI for the likely cause and fix, and opens one ticket per episode.
+category: gcp
+icon: database
+status: ACTIVE
+tags:
+  use_case: database-monitoring
+  integrations:
+  - gcp
+  - dbms
+  - llm
+  - tickets
+definition:
+  version: v1
+  inputs:
+  - id: account_id
+    type: string
+    required: true
+  - id: project_id
+    type: string
+    required: true
+  - id: instance
+    type: string
+    required: true
+  - id: database
+    type: string
+    required: false
+    default: ''
+  - id: db_integration_id
+    type: string
+    required: false
+    default: ''
+  - id: db_account_id
+    type: string
+    required: false
+    default: ''
+  - id: ticket_integration_id
+    type: string
+    required: true
+  - id: project_key
+    type: string
+    required: true
+  - id: check_at
+    type: string
+    required: false
+    default: ''
+  - id: min_ms_added
+    type: string
+    required: false
+    default: '20'
+  - id: min_db_seconds_per_hour
+    type: string
+    required: false
+    default: '60'
+  triggers:
+  - type: schedule
+    params:
+      cron: 15 */3 * * *
+  - type: manual
+  timeout: 30m
+  tasks:
+  # Detection is a fixed, tested rule, not the model's judgement. It reads Query Insights
+  # history and sampled plans with the account's credentials and only reads. Its output says
+  # whether anything is new; a regression is new once per episode, so the rest runs once.
+  - id: detect
+    type: scripting.run_script
+    timeout: 10m
+    params:
+      account_id: '{{ Inputs.account_id }}'
+      # Runs on the platform's own cluster, which is where the account's credentials are given to it.
+      executor_type: kubernetes
+      language: python
+      parser_type: json
+      args:
+      - run
+      - --project
+      - '{{ Inputs.project_id }}'
+      - --instance
+      - '{{ Inputs.instance }}'
+      - --database
+      - '{{ Inputs.database }}'
+      - --min-ms-added
+      - '{{ Inputs.min_ms_added }}'
+      - --min-db-seconds-per-hour
+      - '{{ Inputs.min_db_seconds_per_hour }}'
+      - --step-hours
+      - '3'
+      - --at
+      - '{{ Inputs.check_at }}'
+      script: |
+        __PQF_SCRIPT__
+  - id: instance_operations
+    type: gcp.cli
+    depends_on:
+    - detect
+    if: '{{ Tasks.detect.output.data.new }}'
+    params:
+      account_id: '{{ Inputs.account_id }}'
+      command: gcloud sql operations list --instance={{ Inputs.instance }} --project={{ Inputs.project_id }} --filter="{{ Tasks.detect.output.data.operations_filter }}" --limit=50 --format="table(insertTime,endTime,operationType,status,user)"
+    failure_policy:
+      action: continue
+  - id: table_stats
+    type: dbms.query
+    depends_on:
+    - detect
+    # Table statistics show only the present, so they are not collected for a check of a past hour.
+    if: "{{ Tasks.detect.output.data.new and Inputs.db_integration_id != '' and not Inputs.check_at }}"
+    params:
+      integration_id: '{{ Inputs.db_integration_id }}'
+      dbms_type: postgresql
+      account_id: '{{ Inputs.db_account_id or Inputs.account_id }}'
+      command: >-
+        SELECT s.relname AS table_name, s.n_live_tup, s.n_dead_tup, s.n_mod_since_analyze,
+        s.last_analyze, s.last_autoanalyze, s.last_vacuum, s.last_autovacuum,
+        (SELECT string_agg(i.indexrelname || ' scans=' || i.idx_scan || CASE WHEN x.indisvalid THEN '' ELSE ' INVALID' END, '; ' ORDER BY i.indexrelname)
+        FROM pg_stat_user_indexes i JOIN pg_index x ON x.indexrelid = i.indexrelid WHERE i.relid = s.relid) AS indexes
+        FROM pg_stat_user_tables s WHERE s.relname IN ({{ Tasks.detect.output.data.tables_sql }})
+    failure_policy:
+      action: continue
+  - id: open_transactions
+    type: dbms.query
+    depends_on:
+    - detect
+    # Table statistics show only the present, so they are not collected for a check of a past hour.
+    if: "{{ Tasks.detect.output.data.new and Inputs.db_integration_id != '' and not Inputs.check_at }}"
+    params:
+      integration_id: '{{ Inputs.db_integration_id }}'
+      dbms_type: postgresql
+      account_id: '{{ Inputs.db_account_id or Inputs.account_id }}'
+      command: >-
+        SELECT pid, usename, application_name, state, now() - xact_start AS open_for, backend_xmin IS NOT NULL AS holds_xmin
+        FROM pg_stat_activity WHERE xact_start IS NOT NULL AND now() - xact_start > interval '10 minutes'
+        ORDER BY xact_start LIMIT 10
+    failure_policy:
+      action: continue
+  - id: investigate
+    type: llm.investigate
+    depends_on:
+    - instance_operations
+    - table_stats
+    - open_transactions
+    if: '{{ Tasks.detect.output.data.new }}'
+    params:
+      message: |-
+        A fixed rule found these Postgres query regressions on Cloud SQL instance {{ Inputs.instance }} (project {{ Inputs.project_id }}). The numbers are measured; do not recompute them.
+
+        {{ Tasks.detect.output.data.report }}
+
+        Instance operations since {{ Tasks.detect.output.data.since }} (restarts, flag changes, maintenance, imports; daily backups left out):
+        {{ (Tasks.instance_operations.output.data or 'none in this span') if Tasks.instance_operations.output else 'not collected (the step failed)' }}
+
+        Table statistics and indexes for the tables involved (as of now, not as of the check):
+        {% if Inputs.check_at %}not collected: this check is for a past hour and the database shows only the present{% elif Tasks.table_stats.output %}{{ Tasks.table_stats.output | tojson }}{% elif Inputs.db_integration_id %}not collected (the step failed){% else %}no database connection configured{% endif %}
+
+        Transactions open longer than 10 minutes:
+        {% if Inputs.check_at %}not collected: this check is for a past hour and the database shows only the present{% elif Tasks.open_transactions.output %}{{ Tasks.open_transactions.output | tojson }}{% elif Inputs.db_integration_id %}not collected (the step failed){% else %}no database connection configured{% endif %}
+
+        Find what changed between the last normal hours and the first slow hour. Check, with your read-only tools: the instance operations above; when each table was last analyzed or vacuumed and whether an index is missing, unused or invalid; long-open transactions; and deploys or commits of the applications that use this database, if you can see them. Then answer in Markdown with: Likely cause (with the evidence for it, or "no change found"), Who sends the query (if known), and Suggested fix (an index or statistics change, a query change, or reverting a change), with the exact statement or code change. Do not change anything.
+  - id: open_ticket
+    type: tickets.create
+    depends_on:
+    - investigate
+    if: '{{ Tasks.detect.output.data.new }}'
+    params:
+      integration_id: '{{ Inputs.ticket_integration_id }}'
+      project_key: '{{ Inputs.project_key }}'
+      title: 'Postgres query regression on {{ Inputs.instance }} ({{ Tasks.detect.output.data.now }})'
+      description: |-
+        ## What got slower
+
+        {{ Tasks.detect.output.data.report }}
+
+        ## Likely cause and fix (AI, check before acting)
+
+        {{ Tasks.investigate.output.data }}
+template_variables:
+- id: gcp_account
+  input_ref: account_id
+  display_name: GCP account
+  help_text: The GCP account that holds the Cloud SQL instance. It needs read access to Cloud Monitoring and Cloud Trace (roles/viewer covers both).
+  required: true
+  type: account_selector
+  group: Database
+- id: gcp_project
+  input_ref: project_id
+  display_name: Project ID
+  help_text: The GCP project of the instance
+  required: true
+  type: string
+  group: Database
+- id: sql_instance
+  input_ref: instance
+  display_name: Cloud SQL instance
+  help_text: Instance ID (not the connection name). Query Insights must be on.
+  required: true
+  type: string
+  group: Database
+- id: sql_database
+  input_ref: database
+  display_name: Database
+  help_text: Report regressions in this database only. Leave empty for all databases.
+  required: false
+  type: string
+  group: Database
+- id: db_integration
+  input_ref: db_integration_id
+  display_name: Postgres connection (optional)
+  help_text: A read-only connection to the same database (a user with pg_monitor). Adds table statistics, indexes and open transactions to the investigation.
+  required: false
+  type: integration
+  group: Database
+- id: db_account
+  input_ref: db_account_id
+  display_name: Account of the Postgres connection
+  help_text: The account the Postgres connection is linked to, if it is not the GCP account above.
+  required: false
+  type: account_selector
+  group: Database
+- id: ticket_integration
+  input_ref: ticket_integration_id
+  display_name: Ticket integration
+  help_text: Where regressions are filed
+  required: true
+  type: integration
+  group: Tickets
+- id: ticket_project
+  input_ref: project_key
+  display_name: Ticket project
+  help_text: Repository as owner/name for GitHub or GitLab, or a Jira project key
+  required: true
+  type: string
+  group: Tickets
+- id: min_ms
+  input_ref: min_ms_added
+  display_name: Minimum slowdown per call (ms)
+  required: false
+  placeholder: '20'
+  type: string
+  group: Thresholds
+- id: min_db_seconds
+  input_ref: min_db_seconds_per_hour
+  display_name: Minimum extra database time (seconds per hour)
+  required: false
+  placeholder: '60'
+  type: string
+  group: Thresholds
