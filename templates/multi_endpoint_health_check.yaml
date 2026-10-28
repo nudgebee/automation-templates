@@ -29,14 +29,10 @@ definition:
   - id: notification_channel
     type: string
     required: true
-  - id: cron_schedule
-    type: string
-    required: false
-    default: '*/5 * * * *'
   triggers:
   - type: schedule
     params:
-      cron: '{{ Inputs.cron_schedule }}'
+      cron: '*/5 * * * *'
   - type: manual
   tasks:
   - id: http_check
@@ -71,16 +67,9 @@ definition:
     - tcp_check
     - dns_check
     params:
-      expression: 'var failures = []; if (http_status !== ''COMPLETED'') failures.push(''HTTP: '' + http_endpoint); if (tcp_status !== ''COMPLETED'' && tcp_host) failures.push(''TCP: '' + tcp_host + '':'' + tcp_port); if (dns_status !== ''COMPLETED'' && dns_domain) failures.push(''DNS: '' + dns_domain); ({ total_checks: 3, failures: failures, has_failures: failures.length > 0 })'
+      expression: 'var failures = []; if (data.http_status !== ''COMPLETED'') failures.push(''HTTP: '' + data.http_endpoint); if (data.tcp_status !== ''COMPLETED'' && data.tcp_host) failures.push(''TCP: '' + data.tcp_host + '':'' + data.tcp_port); if (data.dns_status !== ''COMPLETED'' && data.dns_domain) failures.push(''DNS: '' + data.dns_domain); ({ total_checks: 3, failures: failures, has_failures: failures.length > 0 })'
       scriptType: javascript
-      input:
-        http_status: '{{ Tasks.http_check.status }}'
-        http_endpoint: '{{ Inputs.health_endpoint }}'
-        tcp_status: '{{ Tasks.tcp_check.status }}'
-        tcp_host: '{{ Inputs.tcp_host }}'
-        tcp_port: '{{ Inputs.tcp_port }}'
-        dns_status: '{{ Tasks.dns_check.status }}'
-        dns_domain: '{{ Inputs.dns_domain }}'
+      input: '{"http_status": {{ Tasks.http_check.status | default('''') | tojson }}, "http_endpoint": {{ Inputs.health_endpoint | default('''') | tojson }}, "tcp_status": {{ Tasks.tcp_check.status | default('''') | tojson }}, "tcp_host": {{ Inputs.tcp_host | default('''') | tojson }}, "tcp_port": {{ Inputs.tcp_port | default('''') | tojson }}, "dns_status": {{ Tasks.dns_check.status | default('''') | tojson }}, "dns_domain": {{ Inputs.dns_domain | default('''') | tojson }}}'
   - id: alert_failures
     type: notifications.im
     depends_on:

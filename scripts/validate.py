@@ -174,6 +174,102 @@ def validate_workflow_semantics(doc, rel):
         if total and total > wf_secs:
             errs.append(f"sum of task timeouts ({total}s) exceeds workflow timeout ({wf_secs}s)")
 
+    workflow_hooks = [a for v in (definition.get("hooks") or {}).values() if isinstance(v, list) for a in v]
+    errs.extend(_required_param_errors(list(tasks) + workflow_hooks))
+    errs.extend(_cron_errors(definition.get("triggers")))
+
+    return errs
+
+
+# Params each task's InputSchema marks Required with no Default in runbook-server
+# (types.Schema.Validate, "missing required parameter"). Keep in sync with the engine.
+REQUIRED_PARAMS = {
+    "aws.cli": ["command"], "azure.cli": ["command"], "gcp.cli": ["command"],
+    "cloud.aws.cli": ["command"], "cloud.azure.cli": ["command"],
+    "cloud.gcp.cli": ["command"], "cloud.k8s.cli": ["command"], "k8s.cli": ["command"],
+    "cicd.argocd.cli": ["command", "integration_id"],
+    "core.approval": ["message"], "core.call-workflow": ["workflow_name"],
+    "core.foreach": ["items", "tasks"], "core.group": ["tasks"], "core.print": ["message"],
+    "core.switch": ["expression"], "core.wait": ["duration"],
+    "crypto.decode": ["algorithm", "data"], "crypto.decrypt": ["data", "key"],
+    "crypto.encode": ["algorithm", "data"], "crypto.encrypt": ["data", "key"],
+    "crypto.hash": ["algorithm", "data"],
+    "data.filter": ["condition", "list"], "data.transform": ["expression", "input"],
+    "dbms.query": ["command", "dbms_type", "integration_id"],
+    "dbms.redis.cli": ["command", "integration_id"],
+    "events.add_evidence": ["event_id"], "events.store": ["event"],
+    "google_chat.join_space": ["channel_id"], "slack.join_channel": ["channel_id"],
+    "integrations.http": ["url"], "integrations.ssh": ["command", "integration_id"],
+    "k8s.continuous_rightsize": ["account_id", "kind", "name", "namespace"],
+    "k8s.horizontal_rightsize": ["direction", "kind", "name", "namespace"],
+    "k8s.node_graceful_shutdown": ["name"], "k8s.pod_delete": ["name", "namespace"],
+    "k8s.profile": ["namespace", "pod_name"],
+    "k8s.pv_rightsize": ["gitops_config", "name", "namespace"],
+    "k8s.vertical_rightsize": ["direction", "kind", "name", "namespace"],
+    "k8s.workload_restart": ["kind", "name", "namespace"],
+    "llm.a2a_call": ["method", "url"], "llm.classify": ["options", "prompt"],
+    "llm.event_investigate": ["account_id", "event_id"], "llm.investigate": ["message"],
+    "llm.mcp_call": ["connection_mode", "tool_name"], "llm.nubi": ["message"],
+    "llm.router": ["prompt"], "llm.summary": ["message"],
+    "mq.rabbitmqadmin.cli": ["command", "integration_id"],
+    "network.dns": ["domain"], "network.ping": ["host"], "network.ssl": ["host"],
+    "network.tcp": ["host", "port"], "network.traceroute": ["host"], "network.whois": ["domain"],
+    "notifications.add_channel_members": ["channel_id", "provider", "user_ids"],
+    "notifications.add_reaction": ["channel_id", "emoji", "message_id", "provider"],
+    "notifications.create_channel": ["name", "provider"],
+    "notifications.dm": ["message", "provider", "user_id"],
+    "notifications.email": ["body", "recipients", "subject"],
+    "notifications.im": ["channel", "message", "provider"],
+    "notifications.read_thread": ["channel_id", "provider", "thread_ts"],
+    "observability.logs": ["query"], "observability.metrics": ["queries"],
+    "scm.github.cli": ["command", "integration_id"], "scm.gitlab.cli": ["command", "integration_id"],
+    "scripting.run_script": ["script"],
+    "tickets.acknowledge": ["integration_id", "ticket_id"],
+    "tickets.add_comment": ["comment", "integration_id", "ticket_id"],
+    "tickets.assign": ["assignee", "integration_id", "ticket_id"],
+    "tickets.create": ["description", "integration_id", "project_key", "title"],
+    "tickets.escalate": ["integration_id", "ticket_id"], "tickets.get": ["integration_id", "ticket_id"],
+    "tickets.get_comments": ["ticket_id"], "tickets.resolve": ["integration_id", "ticket_id"],
+    "tickets.transition": ["integration_id", "status", "ticket_id"],
+    "tickets.update": ["integration_id", "ticket_id"],
+    "vertical_rightsize_generate": ["account_id", "namespace"],
+}
+
+
+def _nested_tasks(task):
+    """Child tasks of a group / foreach / switch, and hook tasks."""
+    params = task.get("params") if isinstance(task.get("params"), dict) else {}
+    for v in list(task.values()) + list(params.values()) + list((task.get("hooks") or {}).values()):
+        if isinstance(v, list):
+            yield from (c for c in v if isinstance(c, dict) and "type" in c)
+
+
+def _required_param_errors(tasks):
+    errs = []
+    for t in tasks or []:
+        if not isinstance(t, dict):
+            continue
+        params = t.get("params") if isinstance(t.get("params"), dict) else {}
+        for name in REQUIRED_PARAMS.get(t.get("type"), []):
+            if params.get(name) in (None, ""):
+                owner = f"task {t['id']!r}" if t.get("id") else "hook"
+                errs.append(f"{owner}: missing required parameter {name!r} for {t.get('type')}")
+        errs.extend(_required_param_errors(list(_nested_tasks(t))))
+    return errs
+
+
+def _cron_errors(triggers):
+    # The engine checks the cron when the automation is saved, before any input
+    # is resolved, so a templated cron like {{ Inputs.cron }} never validates.
+    errs = []
+    for trig in triggers or []:
+        if not isinstance(trig, dict) or trig.get("type") != "schedule":
+            continue
+        params = trig.get("params") if isinstance(trig.get("params"), dict) else {}
+        cron = str(params.get("cron", "")).strip()
+        spec = re.sub(r"^(CRON_TZ|TZ)=\S+\s+", "", cron)  # the engine strips this before parsing
+        if "{{" in cron or not (spec.startswith("@") or len(spec.split()) == 5):
+            errs.append(f"schedule trigger cron {cron!r} must be a literal cron expression (5 fields or @descriptor)")
     return errs
 
 
