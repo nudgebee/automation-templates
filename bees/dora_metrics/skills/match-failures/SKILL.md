@@ -14,8 +14,10 @@ that once in the report's method line.
 
 ## Failed deploys (change failure rate)
 A deploy failed when either:
-- a failure starts on the same workload (`subject_owner` = the workload, or `subject_name`
-  starting with it) within `failure_window_minutes` after the deploy; or
+- a failure starts on the same workload within `failure_window_minutes` after the deploy. Same
+  workload means `subject_owner` equals the workload's name, or `subject_name` is a pod of it:
+  `<workload>-<pod-template-hash>-<suffix>` for a Deployment, `<workload>-<ordinal>` for a
+  StatefulSet. A plain prefix is not enough: workload `api` must not match `api-gateway`; or
 - the deploy was rolled back (count-deploys step 3), even with no alert.
 
 Change failure rate = failed deploys / deploys. With no deploys, report "no deploys" and no rate.

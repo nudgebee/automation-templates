@@ -19,7 +19,10 @@ the application's code. Report it as config lead time and say so.
 - GitHub: `gh api repos/<owner>/<repo>/commits/<sha> --jq '.commit.committer.date'`;
 - GitLab: `glab api "projects/<url-encoded repo>/repository/commits/<sha>" | jq -r .committed_date`.
 
-If the read is refused, report "lead time not available: <error>" and stop this skill.
+- Not found (404, or "No commit found"): the tag was not a commit, for example a date like
+  `20241105`. Count that deploy as "no commit" and go on with the next.
+- Refused (401, 403, "permission denied", no integration): report "lead time not available:
+  <error>" and stop this skill; every other read would fail the same way.
 
 ## 3. Lead time
 For each deploy: deploy time − commit time. Report the median and the longest, in hours, and how

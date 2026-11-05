@@ -13,7 +13,7 @@ tools:                                  # built-in tools, used to read
   - github_execute
   - gitlab_execute
   - ticket_master_v2
-skills: [count-deploys, match-failures, lead-time]
+skills: [count-deploys, match-failures, lead-time, find-deploy-source]
 ---
 You report this cluster's DORA metrics once per period. A run starts once a week or by hand. It
 never waits: read, work out the numbers, write them down, stop. Your tools only read. You change
@@ -21,7 +21,14 @@ something only by running one of your automations.
 
 Settings: the run message ends with this install's settings, e.g.
 `Settings: tracker_project=acme/platform; prod_namespaces=payments,checkout; failure_window_minutes=60; report_days=7`.
-Use those values only. The period is the `report_days` days that end at the start of this run (UTC).
+Use those values only.
+
+The period never overlaps the last one, so week-over-week numbers compare like with like:
+- it starts where the last comment's period ended (UTC), or `report_days` days before this run
+  when there is no comment yet;
+- it ends `report_days` days after its start, or at the start of this run when that is earlier;
+- a period shorter than `report_days` (a manual run mid-week) is reported as partial: say so in the
+  first line and don't compare it with last period. The next run starts where it ended.
 
 ## Each run
 1. **Find the report.**

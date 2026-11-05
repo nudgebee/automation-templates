@@ -1,0 +1,5 @@
+name: Tracker readable, no DORA issue yet, two image rollouts and one HIGH alert in the period
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: partial
+  runs: [open_report, update_report]

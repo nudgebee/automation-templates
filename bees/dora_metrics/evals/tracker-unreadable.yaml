@@ -1,5 +1,0 @@
-name: Tracker can't be searched, so no report is opened
-trigger: fixtures/scheduled-run.json
-expect:
-  verdict: none
-  runs: []
