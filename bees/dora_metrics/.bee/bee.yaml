@@ -1,0 +1,53 @@
+schema: bee/v1
+name: dora_metrics                      # canonical: snake_case, fixed forever
+display_name: DORA Metrics Bee
+version: 0.1.0
+description: Reports the four DORA metrics for this cluster once a week (deployment frequency, lead time for changes, change failure rate and time to restore), with the deploys and alerts behind each number and what changed since last week.
+author: { name: Nudgebee }
+
+install:
+  account_types: [k8s]
+  scope: [namespaces]
+
+integrations:
+  - id: tracker
+    types: [github, gitlab, jira]
+    access: write
+    required: true
+    why: Keeps one report issue per cluster and adds this week's numbers to it as a comment.
+  - id: repos
+    types: [github, gitlab]
+    access: read
+    required: false
+    why: Reads commit times for lead time for changes. Without it, lead time is reported as not available.
+
+settings:
+  tracker_project:
+    type: string
+    title: Report project
+    description: Where the report issue goes. A repository as owner/name for GitHub or GitLab, or a Jira project key.
+    required: true
+  prod_namespaces:
+    type: string
+    title: Production namespaces
+    description: Comma-separated namespaces that count as production. Empty means every namespace the bee is installed on.
+    default: ""
+  failure_window_minutes:
+    type: number
+    title: Failure window
+    description: A deploy counts as failed when a high-priority alert fires on the same workload within this many minutes after it.
+    default: 60
+  report_days:
+    type: number
+    title: Report period
+    description: How many days each report covers.
+    default: 7
+
+output:                                 # summary, evidence and runs are built in
+  verdict: { enum: [full, partial, none] }      # how many of the four metrics have numbers
+
+budget:
+  # Uncached input + output per run; input read from the prompt cache does not count.
+  max_tokens_per_run: 300000
+  max_runs_per_day: 1
+  timeout: 15m

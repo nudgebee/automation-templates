@@ -1,0 +1,24 @@
+# Opens the cluster's DORA report issue. Read tier (it only writes to the tracker), so it runs
+# without asking. The bee opens one per cluster and finds it again before opening another.
+summary: Open the DORA report issue for one cluster.
+slug: dora_metrics__open_report
+name: "Open the DORA report issue"
+description: "Creates the issue that holds one cluster's weekly DORA numbers."
+version: 1.0.0
+definition:
+  version: "v1"
+  inputs:
+    - { id: project_key, type: string, required: true, description: "The tracker_project setting: owner/name, or a Jira key" }
+    - { id: title, type: string, required: true, description: "DORA: <account name>" }
+    - { id: description, type: string, required: true, description: "What the report holds and how each number is worked out" }
+  triggers:
+    - type: manual
+  tasks:
+    - id: create
+      type: tickets.create
+      params:
+        integration_id: "{{ Install.integrations.tracker.id }}"
+        project_key: "{{ Inputs.project_key }}"
+        title: "{{ Inputs.title }}"
+        description: "{{ Inputs.description }}"
+  timeout: "2m"

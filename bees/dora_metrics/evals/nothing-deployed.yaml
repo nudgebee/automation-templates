@@ -1,0 +1,5 @@
+name: Report issue exists, no image rollouts and no HIGH alerts in the period
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: partial
+  runs: [update_report]

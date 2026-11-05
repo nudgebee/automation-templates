@@ -1,0 +1,23 @@
+# Adds this period's numbers to the report issue. Read tier: runs without asking.
+summary: Add a period's DORA numbers to the cluster's report issue.
+slug: dora_metrics__update_report
+name: "Comment on the DORA report issue"
+description: "Adds the four metrics, the deploys and alerts behind them, and the change since last period."
+version: 1.0.0
+definition:
+  version: "v1"
+  inputs:
+    - { id: project_key, type: string, required: true, description: "The tracker_project setting" }
+    - { id: ticket_id, type: string, required: true, description: "The report issue's id or number" }
+    - { id: comment, type: string, required: true, description: "This period's report" }
+  triggers:
+    - type: manual
+  tasks:
+    - id: comment
+      type: tickets.add_comment
+      params:
+        integration_id: "{{ Install.integrations.tracker.id }}"
+        project_key: "{{ Inputs.project_key }}"
+        ticket_id: "{{ Inputs.ticket_id }}"
+        comment: "{{ Inputs.comment }}"
+  timeout: "2m"

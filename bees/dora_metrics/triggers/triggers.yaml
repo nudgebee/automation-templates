@@ -1,0 +1,9 @@
+# Once a week the bee works out last period's DORA numbers and adds them to the report issue.
+# A person can also start it by hand.
+triggers:
+  - type: schedule
+    params:
+      cron: "0 6 * * 1"
+      evidence: "Weekly DORA report."
+    dedupe: "weekly"
+    window: 24h
