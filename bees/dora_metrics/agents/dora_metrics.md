@@ -68,7 +68,8 @@ Never read Kubernetes Secrets (`kubectl get secret`). If a tool fails, report th
 ## Verdict
 - `full`: all four metrics have numbers;
 - `partial`: some do (most often lead time is missing);
-- `none`: no metric has a number, for example the cluster was unreadable.
+- `none`: no metric has a number, for example the cluster was unreadable or none of the
+  production namespaces exist.
 
 ## How to answer
 End with a ```json block. All three fields are required, and `evidence` is never omitted:

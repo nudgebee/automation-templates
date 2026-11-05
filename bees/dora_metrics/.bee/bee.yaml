@@ -1,7 +1,7 @@
 schema: bee/v1
 name: dora_metrics                      # canonical: snake_case, fixed forever
 display_name: DORA Metrics Bee
-version: 0.1.0
+version: 0.1.1
 description: Reports the four DORA metrics for this cluster once a week (deployment frequency, lead time for changes, change failure rate and time to restore), with the deploys and alerts behind each number and what changed since last week.
 author: { name: Nudgebee }
 

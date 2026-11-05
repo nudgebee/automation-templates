@@ -9,6 +9,12 @@ replica count change, an env-only or config-only change, or a restart is not a d
 it rolled out new pods. Work only from what you can read; when a source is unreadable, say so and
 use the next one.
 
+## 0. Check the namespaces exist
+`kubectl get ns <ns>` for each production namespace. A namespace that doesn't exist is a setup
+problem, not a quiet week: leave it out, and report "namespace <ns> not found on this cluster" under
+what could not be read. If none of them exist, every metric is "not available: none of the
+production namespaces (<list>) exist on this cluster", never 0, and the run's verdict is `none`.
+
 ## 1. Pick the source, per workload, in this order
 Read the workload's markers with find-deploy-source step 1.
 
