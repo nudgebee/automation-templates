@@ -1,0 +1,4 @@
+name: Six databases in the setting, above the limit of five - the run refuses and checks nothing
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: none

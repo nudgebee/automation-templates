@@ -2,8 +2,9 @@
 
 Checks SQL Server, PostgreSQL and MySQL databases every day the way a DBA would. Each finding lives
 as one row per database and check until it is fixed. Plans and decisions are kept in one ledger
-issue, and each week the bee reports whether things got better. It only reads: every fix is a plan
-for a person.
+issue, and each week the bee reports whether things got better. Every fix is a plan for a person.
+The bee sends only read queries, and before each run it checks that its login can do nothing more
+than read. That check is not a guarantee: the guarantee is giving it a read-only login.
 
 ## v0.1 (this version)
 - **Preflight:** the database is reachable, and its login can only read. A database whose login can
@@ -20,4 +21,7 @@ for a person.
     jobs check.
   - PostgreSQL: `pg_monitor`.
   - MySQL: `SELECT`, `PROCESS`.
-- **Install settings:** `databases` (those integration names) and `tracker_project`.
+- **Install settings:** `databases` as `name:engine:database` entries, and `tracker_project`.
+- **At install, pick one integration for each engine you use,** even when there are several.
+  That choice gives the bee read access to that engine's integrations. An engine left without a
+  pick has every database report `unreachable`.

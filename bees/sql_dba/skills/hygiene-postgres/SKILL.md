@@ -34,8 +34,7 @@ Fix:
 ## hygiene_unused_index
 - First:
   `SELECT EXTRACT(EPOCH FROM now() - COALESCE((SELECT stats_reset FROM pg_stat_database WHERE datname = current_database()), pg_postmaster_start_time()))::bigint AS stats_age_s`
-  Below 1209600 (14 days): one finding, severity `info`, "statistics younger than 14 days, unused
-  indexes not judged", no `value`.
+  Below 1209600 (14 days), the statistics are too young: don't judge this check (it is not run).
 - Count: `SELECT count(*) AS n FROM pg_stat_user_indexes s JOIN pg_index i ON i.indexrelid = s.indexrelid WHERE s.idx_scan = 0 AND NOT i.indisunique AND NOT i.indisprimary AND pg_relation_size(s.indexrelid) > 1048576`
 - Detail: the same, selecting `s.schemaname, s.relname, s.indexrelname, pg_size_pretty(pg_relation_size(s.indexrelid)) AS size`, ordered by `pg_relation_size(s.indexrelid) DESC`, `LIMIT 20`.
 
@@ -64,13 +63,13 @@ Fix: `ANALYZE` the table, and lower `autovacuum_analyze_scale_factor` for it.
 ## hygiene_xid_age
 `SELECT count(*) AS n FROM pg_database WHERE age(datfrozenxid) > 500000000`
 
-Detail: `SELECT datname, age(datfrozenxid) AS xid_age FROM pg_database ORDER BY 2 DESC LIMIT 5`
+Detail: `SELECT datname, age(datfrozenxid) AS xid_age FROM pg_database WHERE age(datfrozenxid) > 500000000 ORDER BY 2 DESC LIMIT 20`
 
 Fix: urgent. Find what blocks freezing (old transactions, abandoned replication slots, prepared
 transactions) and run `VACUUM (FREEZE)`. At 2 billion the database stops taking writes.
 
 ## hygiene_long_tx
-- Count: `SELECT count(*) AS n FROM pg_stat_activity WHERE xact_start < now() - interval '10 minutes' AND state <> 'active' AND backend_type = 'client backend'`
+- Count (any client transaction open longer than 10 minutes, running or idle, as on the other engines): `SELECT count(*) AS n FROM pg_stat_activity WHERE xact_start < now() - interval '10 minutes' AND backend_type = 'client backend'`
 - Detail: the same, selecting `pid, usename, application_name, state, xact_start, left(query, 120) AS last_query`, ordered by `xact_start`, `LIMIT 20`.
 
 Fix: have the owning client commit, or set `idle_in_transaction_session_timeout`.

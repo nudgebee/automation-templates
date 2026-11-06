@@ -12,8 +12,8 @@ Every check below goes into `checked` as `{target: <database>, check: <name>}`.
     finding a person can act on.
 - If the count is 0: no finding.
 
-Database-level queries run in the integration's database. Pass `database` when the
-integration's default is `master` and the team's database is another one.
+Database-level queries run in the entry's database: pass `database` = the entry's database on
+every call.
 
 | check | severity | unit |
 |---|---|---|
@@ -34,16 +34,17 @@ regressions and plan changes can't be seen.
 
 ## hygiene_unused_index
 - First: `SELECT DATEDIFF(day, sqlserver_start_time, SYSDATETIME()) AS up_days FROM sys.dm_os_sys_info`.
-  Below 14: one finding, severity `info`, "server up less than 14 days, unused indexes not
-  judged", no `value`.
+  Below 14, the counters are too young: don't judge this check (it is not run).
 - Count: `SELECT COUNT(*) AS n FROM sys.indexes i JOIN sys.objects o ON o.object_id = i.object_id LEFT JOIN sys.dm_db_index_usage_stats u ON u.object_id = i.object_id AND u.index_id = i.index_id AND u.database_id = DB_ID() WHERE o.is_ms_shipped = 0 AND i.type_desc = 'NONCLUSTERED' AND i.is_primary_key = 0 AND i.is_unique = 0 AND COALESCE(u.user_seeks + u.user_scans + u.user_lookups, 0) = 0`
 - Detail: the same, selecting `TOP 20 OBJECT_SCHEMA_NAME(i.object_id) AS schema_name, o.name AS table_name, i.name AS index_name, COALESCE(u.user_updates, 0) AS writes`, ordered by `writes DESC`.
 
 Fix: confirm no monthly job uses it, then drop it.
 
 ## hygiene_duplicate_index
-- Count: `SELECT COUNT(*) AS n FROM (SELECT object_id, keys FROM (SELECT i.object_id, STRING_AGG(CAST(ic.column_id AS varchar(10)), ',') WITHIN GROUP (ORDER BY ic.key_ordinal) AS keys FROM sys.indexes i JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0 JOIN sys.objects o ON o.object_id = i.object_id WHERE o.is_ms_shipped = 0 AND i.type > 0 GROUP BY i.object_id, i.index_id) k GROUP BY object_id, keys HAVING COUNT(*) > 1) g`
-- Detail: the same grouping, selecting `TOP 20 OBJECT_NAME(object_id) AS table_name, keys`.
+Two indexes are duplicates when the key columns (in order), the included columns and the filter
+are all the same.
+- Count: `SELECT COUNT(*) AS n FROM (SELECT object_id, keys FROM (SELECT i.object_id, i.name, CONCAT((SELECT STRING_AGG(CAST(ic.column_id AS varchar(10)), ',') WITHIN GROUP (ORDER BY ic.key_ordinal) FROM sys.index_columns ic WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0), '|', (SELECT STRING_AGG(CAST(ic.column_id AS varchar(10)), ',') WITHIN GROUP (ORDER BY ic.column_id) FROM sys.index_columns ic WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 1), '|', COALESCE(i.filter_definition, '')) AS keys FROM sys.indexes i JOIN sys.objects o ON o.object_id = i.object_id WHERE o.is_ms_shipped = 0 AND i.type > 0) k GROUP BY object_id, keys HAVING COUNT(*) > 1) g`
+- Detail: `SELECT TOP 20 OBJECT_SCHEMA_NAME(object_id) + '.' + OBJECT_NAME(object_id) AS table_name, STRING_AGG(name, ', ') AS indexes FROM (SELECT i.object_id, i.name, CONCAT((SELECT STRING_AGG(CAST(ic.column_id AS varchar(10)), ',') WITHIN GROUP (ORDER BY ic.key_ordinal) FROM sys.index_columns ic WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 0), '|', (SELECT STRING_AGG(CAST(ic.column_id AS varchar(10)), ',') WITHIN GROUP (ORDER BY ic.column_id) FROM sys.index_columns ic WHERE ic.object_id = i.object_id AND ic.index_id = i.index_id AND ic.is_included_column = 1), '|', COALESCE(i.filter_definition, '')) AS keys FROM sys.indexes i JOIN sys.objects o ON o.object_id = i.object_id WHERE o.is_ms_shipped = 0 AND i.type > 0) k GROUP BY object_id, keys HAVING COUNT(*) > 1`
 
 Fix: keep one per group (prefer the clustered or unique one) and drop the others.
 
@@ -61,11 +62,10 @@ review.
 Fix: `UPDATE STATISTICS` on the table, or schedule it.
 
 ## hygiene_log_space
-`SELECT COUNT(*) AS n FROM sys.dm_db_log_space_usage WHERE used_log_space_in_percent > 80`
+One query covers every database, tempdb included:
+`SELECT COUNT(*) AS n FROM sys.dm_os_performance_counters WHERE counter_name = 'Percent Log Used' AND instance_name NOT IN ('_Total', 'mssqlsystemresource') AND cntr_value > 80`
 
-Also run it once in `tempdb` (`database: tempdb`).
-
-Detail: `SELECT DB_NAME(database_id) AS db, used_log_space_in_percent FROM sys.dm_db_log_space_usage`.
+Detail: `SELECT instance_name AS db, cntr_value AS percent_log_used FROM sys.dm_os_performance_counters WHERE counter_name = 'Percent Log Used' AND instance_name NOT IN ('_Total', 'mssqlsystemresource') AND cntr_value > 80`
 
 Fix: find what holds the log (`log_reuse_wait_desc` in `sys.databases`): an open transaction,
 replication, or a missing log backup.
@@ -78,11 +78,11 @@ replication, or a missing log backup.
 Fix: have the owning client commit or end it. Old transactions hold locks and log.
 
 ## hygiene_agent_jobs
-`SELECT COUNT(*) AS n FROM msdb.dbo.sysjobhistory h WHERE h.step_id = 0 AND h.run_status = 0 AND h.run_date >= CONVERT(int, CONVERT(char(8), DATEADD(day, -1, GETDATE()), 112))`
+`SELECT COUNT(DISTINCT h.job_id) AS n FROM msdb.dbo.sysjobhistory h WHERE h.step_id = 0 AND h.run_status = 0 AND h.run_date >= CONVERT(int, CONVERT(char(8), DATEADD(day, -1, GETDATE()), 112))` (jobs, not runs)
 (Since yesterday's date, so at most 48 hours. Don't use `msdb.dbo.agent_datetime`: RDS denies EXECUTE on it.)
 
 Detail: the failed jobs' names (join `msdb.dbo.sysjobs`), `TOP 20`.
 
-If msdb can't be read: one finding, severity `info`, title "could not read Agent job history",
-the error in `detail`, and no `value`. Don't guess why. On RDS the job history can stay closed
-even with `SQLAgentReaderRole`, and SQL Server Express has no Agent at all.
+If msdb can't be read, the check is not run. Give the error in `evidence`, and don't guess why.
+On RDS the job history can stay closed even with `SQLAgentReaderRole`, and SQL Server Express has
+no Agent at all.

@@ -1,0 +1,5 @@
+name: One entry's integration connects to another database than the entry names - identity finding, that database skipped, the others checked
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: partial
+  runs: [update_ledger]

@@ -40,11 +40,13 @@ Fix: drop the redundant index after checking that no query hint names it. Quote 
 as the statement to review; never run it.
 
 ## hygiene_unused_index
-- First run `SHOW GLOBAL STATUS LIKE 'Uptime'`. Below 1209600 seconds (14 days), the usage counters
-  are too young to trust: give one finding with severity `info`, title "server up less than 14
-  days, unused indexes not judged", and no `value`.
-- Count: `SELECT COUNT(*) AS n FROM sys.schema_unused_indexes WHERE object_schema NOT IN SYS`
-- Detail: `SELECT object_schema, object_name, index_name FROM sys.schema_unused_indexes WHERE object_schema NOT IN SYS LIMIT 20`
+- Don't judge this check (it is not run) in two cases:
+  - `performance_schema` is off: the view is then always empty;
+  - `SHOW GLOBAL STATUS LIKE 'Uptime'` is below 1209600 seconds (14 days): the counters are too
+    young to trust.
+- Count (unique indexes left out, as on the other engines):
+  `SELECT COUNT(*) AS n FROM sys.schema_unused_indexes u JOIN information_schema.statistics s ON s.table_schema = u.object_schema AND s.table_name = u.object_name AND s.index_name = u.index_name AND s.seq_in_index = 1 WHERE u.object_schema NOT IN SYS AND s.non_unique = 1`
+- Detail: the same join, selecting `u.object_schema, u.object_name, u.index_name`, `LIMIT 20`.
 
 Fix: confirm with the owning team that no monthly job uses it, then drop it. Unused indexes still
 cost every write.

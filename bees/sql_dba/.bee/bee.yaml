@@ -6,7 +6,7 @@ description: Checks your SQL Server, PostgreSQL and MySQL databases every day th
 author: { name: Nudgebee }
 
 install:
-  account_types: [aws, gcp, k8s]
+  account_types: [aws, gcp, azure, k8s]
 
 integrations:
   - id: mssql
@@ -34,7 +34,7 @@ settings:
   databases:
     type: string
     title: Databases
-    description: Comma-separated names of the SQL integrations this install looks after, exactly as they are named in Nudgebee. Name each integration after its database instance (on RDS, its DB instance identifier).
+    description: "Comma-separated entries name:engine:database, one per database the install looks after. name is the SQL integration's name in Nudgebee (on RDS, name it after the DB instance identifier); engine is mssql, postgres or mysql; database is the database the integration connects to. Example: orders-db:postgres:orders,billing:mysql:billing"
     required: true
   tracker_project:
     type: string
@@ -44,7 +44,7 @@ settings:
   max_databases:
     type: number
     title: Most databases per run
-    description: A run refuses to start above this many, so one run stays inside its budget.
+    description: A run refuses to start above this many, so one run stays inside its budget. At most 5.
     default: 3
   report_day:
     type: string

@@ -4,12 +4,17 @@ description: Keep the install's one ledger issue - find or open it, read the tea
 ---
 # Ledger
 
-One open issue per install, titled `SQL DBA: <databases setting>`, in `tracker_project`.
+One open issue per account, titled exactly `SQL DBA: <account name>` (the account name from
+`nudgebee_accounts_list`), in `tracker_project`. The title doesn't change when `databases`
+changes, so editing the list never opens a second ledger.
 
 1. **Find it.**
-   - GitHub: `gh issue list -R <tracker_project> --state open --search "SQL DBA: in:title" --json number,title,url`
-   - GitLab: `glab issue list -R <tracker_project> --search "SQL DBA:"`
-   - Jira: `ticket_master_v2` `list_tickets`, then match the title.
+   - GitHub: `gh issue list -R <tracker_project> --state open --search "\"SQL DBA: <account name>\" in:title" --json number,title,url`
+   - GitLab: `glab issue list -R <tracker_project> --search "SQL DBA: <account name>"`
+   - Jira: `ticket_master_v2` `list_tickets`.
+
+   In every case keep only an issue whose title is exactly that string. Others, for example
+   another account's ledger in the same project, are not this one.
 
    If you can't search the tracker, don't open one: skip the ledger, and say so in the summary.
    An unsearched tracker leads to a duplicate every run.
@@ -28,7 +33,8 @@ One open issue per install, titled `SQL DBA: <databases setting>`, in `tracker_p
 
    Copy the first-seen date of a finding from the previous table; a new one is today.
 6. **On the report day** (`report_day`, in UTC), that comment starts with `Weekly report`.
-   - Per check: this week's value, the value in the comment from 7 days ago, and the change.
+   - Per check: this week's value and, beside it, the value as written in the comment from 7
+     days ago. Don't work out the difference: the reader compares the two.
    - Then what needs a person (critical findings, oldest first).
    - Take last week's values from that comment as written. Don't recompute them.
 
