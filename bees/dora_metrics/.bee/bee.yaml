@@ -1,7 +1,7 @@
 schema: bee/v1
 name: dora_metrics                      # canonical: snake_case, fixed forever
 display_name: DORA Metrics Bee
-version: 0.1.1
+version: 0.1.2
 description: Reports the four DORA metrics for this cluster once a week (deployment frequency, lead time for changes, change failure rate and time to restore), with the deploys and alerts behind each number and what changed since last week.
 author: { name: Nudgebee }
 
@@ -48,6 +48,6 @@ output:                                 # summary, evidence and runs are built i
 
 budget:
   # Uncached input + output per run; input read from the prompt cache does not count.
-  max_tokens_per_run: 300000
+  max_tokens_per_run: 400000
   max_runs_per_day: 1
   timeout: 15m

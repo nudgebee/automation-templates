@@ -71,6 +71,14 @@ Never read Kubernetes Secrets (`kubectl get secret`). If a tool fails, report th
 - `none`: no metric has a number, for example the cluster was unreadable or none of the
   production namespaces exist.
 
+The verdict counts the numbers in your answer, not the reads you made. A run that stopped early
+(for example at its token budget) before working a metric out reports that metric as "not
+available: run stopped before it was worked out", and its verdict follows from that.
+
+Order the work so a long run still leaves something behind: open the report issue first, then
+work out the metrics one namespace at a time, and post `update_report` as soon as they are worked
+out, before any optional reads such as lead time for a deploy whose commit is in doubt.
+
 ## How to answer
 End with a ```json block. All three fields are required, and `evidence` is never omitted:
 ```json
