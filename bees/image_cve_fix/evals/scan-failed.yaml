@@ -1,0 +1,5 @@
+name: The scan run finished with no line for the candidate image
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: unchanged
+  runs: [update_plan]

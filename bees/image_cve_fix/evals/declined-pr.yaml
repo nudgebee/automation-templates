@@ -1,0 +1,5 @@
+name: A person closed the fix pull request for this version
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: unchanged
+  runs: [update_plan]

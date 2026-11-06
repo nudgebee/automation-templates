@@ -1,0 +1,25 @@
+# Opens the tracking issue: the plan. Read tier (it only writes to the tracker), so it runs
+# without asking. The bee opens one per cluster and namespace set, and finds it again before
+# opening another.
+summary: Open the tracking issue for one cluster's chosen namespaces.
+slug: image_cve_fix__open_plan
+name: "Open the image CVE tracking issue"
+description: "Creates the tracking issue that holds the plan for one cluster's chosen namespaces."
+version: 1.0.0
+definition:
+  version: "v1"
+  inputs:
+    - { id: project_key, type: string, required: true, description: "The tracker_project setting: owner/name" }
+    - { id: title, type: string, required: true, description: "Image CVEs: <cluster> <namespaces>" }
+    - { id: description, type: string, required: true, description: "The plan: the number, each image and its state" }
+  triggers:
+    - type: manual
+  tasks:
+    - id: create
+      type: tickets.create
+      params:
+        integration_id: "{{ Install.integrations.tracker.id }}"
+        project_key: "{{ Inputs.project_key }}"
+        title: "{{ Inputs.title }}"
+        description: "{{ Inputs.description }}"
+  timeout: "2m"

@@ -1,0 +1,45 @@
+schema: bee/v1
+name: image_cve_fix                     # canonical: snake_case, fixed forever
+display_name: Image CVE Fix Bee
+version: 1.0.0
+description: Brings down fixable Critical and High CVEs on the images running in the namespaces you choose. For each image it finds the cheapest fix that works, scans a newer version before asking to upgrade, opens the pull request, and proves the result on the running image.
+author: { name: Nudgebee }
+
+install:
+  account_types: [k8s]
+  scope: [namespaces]
+
+integrations:
+  - id: tracker
+    types: [github]
+    access: write
+    required: true
+    why: Keeps one tracking issue per cluster and namespace set, the plan, and comments on it after every run.
+  - id: repos
+    types: [github]
+    access: write
+    required: true
+    why: Opens the pull request for a fix. Asks every time.
+
+settings:
+  tracker_project:
+    type: string
+    title: Tracking project
+    description: The repository, as owner/name, where the tracking issue goes.
+    required: true
+  namespaces:
+    type: string
+    title: Namespaces
+    description: Comma-separated namespaces to work on. The bee refuses to run without them.
+    required: true
+
+output:                                 # summary, evidence and runs are built in
+  stage: { enum: [no_scope, nothing_open, working, unsure] }
+  verdict: { enum: [improved, unchanged, worse, none] }
+  open_findings: { type: number }
+
+budget:
+  # Uncached input + output per run; input read from the prompt cache does not count.
+  max_tokens_per_run: 400000
+  max_runs_per_day: 2
+  timeout: 15m

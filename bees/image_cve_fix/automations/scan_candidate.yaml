@@ -1,0 +1,29 @@
+# Scans a newer tag of an image a workload runs, with the platform scanner, and compares it with the
+# running image. Change tier (it pulls an image onto a node of the cluster, never running its
+# entrypoint), so it runs on its own outside prod and asks first on prod. Nothing is stored: the
+# comparison is the step's output. A scan can take over 30 minutes, longer than a bee run, so the
+# run returns while it is still going and a later run reads the result with workflow_execution_get.
+summary: Scan a newer tag of a running image and compare it with the running one.
+slug: image_cve_fix__scan_candidate
+name: "Scan a candidate image"
+description: "Pulls a newer tag of an image a workload runs onto a node, scans it without running it, and returns which CVEs it fixes, leaves and adds compared with the running image."
+version: 1.0.0
+definition:
+  version: "v1"
+  inputs:
+    - { id: namespace, type: string, required: true, description: "Namespace of the workload, one of the namespaces setting" }
+    - { id: workload, type: string, required: true, description: "Workload that runs the image's repository" }
+    - { id: image, type: string, required: true, description: "Candidate image with a tag or digest, from a repository the workload runs" }
+    - { id: baseline_image, type: string, required: true, description: "The image the workload runs now, exactly as in its spec" }
+  triggers:
+    - type: manual
+  tasks:
+    - id: scan
+      type: security.scan_image_candidate
+      params:
+        namespace: "{{ Inputs.namespace }}"
+        workload: "{{ Inputs.workload }}"
+        image: "{{ Inputs.image }}"
+        baseline_image: "{{ Inputs.baseline_image }}"
+      timeout: "35m"
+  timeout: "40m"

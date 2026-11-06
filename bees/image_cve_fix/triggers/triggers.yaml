@@ -1,0 +1,9 @@
+# Once a day the bee picks up where the tracking issue left off and does the next step.
+# A person can also start it by hand. It never waits inside a run.
+triggers:
+  - type: schedule
+    params:
+      cron: "0 6 * * *"
+      evidence: "Daily image CVE check."
+    dedupe: "daily"
+    window: 12h
