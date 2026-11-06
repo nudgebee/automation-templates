@@ -1,0 +1,5 @@
+name: The namespaces setting is empty
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: none
+  runs: []

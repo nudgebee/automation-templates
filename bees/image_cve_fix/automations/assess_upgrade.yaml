@@ -1,0 +1,116 @@
+# Works out how confident the bee may be that an upgrade won't break anything. Read tier (one script
+# step, no outside call), so it runs without asking. The level is computed here, never by the model:
+# the scan verdict, the version distance (from the two versions) and the OS family decide it; the
+# signals the agent read (release notes, chart values, Kubernetes APIs) can only lower it.
+summary: Compute the confidence level for one upgrade from its scan and break-risk signals.
+slug: image_cve_fix__assess_upgrade
+name: "Assess an upgrade"
+description: "Returns High, Medium or Low for one upgrade, with every evidence line. Low never becomes a pull request."
+version: 1.0.0
+definition:
+  version: "v1"
+  inputs:
+    - { id: kind, type: string, required: true, description: "image or chart: what the upgrade moves" }
+    - { id: verdict, type: string, required: true, description: "The scan's verdict: upgrade or hold" }
+    - { id: from_version, type: string, required: true, description: "The running tag or chart version" }
+    - { id: to_version, type: string, required: true, description: "The candidate tag or chart version" }
+    - { id: os_family_from, type: string, required: false, description: "OS family of the running image, from its stored scan (e.g. debian); empty if unknown" }
+    - { id: os_family_to, type: string, required: false, description: "OS family of the candidate, the os-pkgs/<family> entry in the scan's analysers; empty if none" }
+    - { id: signals, type: string, required: true, description: "JSON array of what you read: [{\"signal\": \"release_notes|chart_values|k8s_apis\", \"state\": \"checked|partial|not_checked\", \"risk\": \"none|soft|hard\", \"quote\": \"the text that shows it\"}]. soft = deprecation or a change to check; hard = breaking, removed key you override, API the cluster doesn't serve" }
+  triggers:
+    - type: manual
+  tasks:
+    - id: assess
+      type: data.transform
+      params:
+        scriptType: javascript
+        inputType: json
+        outputType: raw
+        input: >-
+          {"kind": {{ Inputs.kind | to_json }}, "verdict": {{ Inputs.verdict | to_json }},
+          "from_version": {{ Inputs.from_version | to_json }}, "to_version": {{ Inputs.to_version | to_json }},
+          "os_family_from": {{ Inputs.os_family_from | default('') | to_json }}, "os_family_to": {{ Inputs.os_family_to | default('') | to_json }},
+          "signals": {{ Inputs.signals | to_json }}}
+        expression: |
+          (function () {
+            // ES5 only: this runs in goja.
+            function s(v) { return (v === null || v === undefined) ? '' : String(v).trim(); }
+            var hard = [], soft = [], lines = [];
+            function add(name, source, state, risk, text) {
+              lines.push({ signal: name, source: source, state: state, risk: risk, evidence: text });
+              if (risk === 'hard') { hard.push(name + ': ' + text); }
+              else if (risk === 'soft' || state !== 'checked') { soft.push(name + ': ' + text); }
+            }
+
+            // Scan verdict (code).
+            var verdict = s(data.verdict).toLowerCase();
+            add('scan', 'code', verdict ? 'checked' : 'not_checked', verdict === 'upgrade' ? 'none' : 'hard',
+                verdict === 'upgrade' ? 'fixes CVEs and adds none' : ('verdict ' + (verdict || 'missing') + ', not upgrade'));
+
+            // Version distance (code): leading major.minor.patch of each version.
+            function ver(v) {
+              var m = /^v?(\d+)(?:\.(\d+))?(?:\.(\d+))?/.exec(s(v));
+              return m ? { major: +m[1], minor: +(m[2] || 0), patch: +(m[3] || 0) } : null;
+            }
+            var a = ver(data.from_version), b = ver(data.to_version), distance = null;
+            if (!a || !b) {
+              add('version_distance', 'code', 'not_checked', 'none', 'no version number in ' + s(data.from_version) + ' or ' + s(data.to_version));
+            } else if (b.major < a.major || (b.major === a.major && (b.minor < a.minor || (b.minor === a.minor && b.patch <= a.patch)))) {
+              distance = { kind: 'none', minors: 0 };
+              add('version_distance', 'code', 'checked', 'hard', s(data.to_version) + ' is not newer than ' + s(data.from_version));
+            } else if (b.major !== a.major) {
+              distance = { kind: 'major', minors: 0 };
+              add('version_distance', 'code', 'checked', 'hard', 'major bump ' + a.major + ' to ' + b.major);
+            } else if (b.minor !== a.minor) {
+              var minors = b.minor - a.minor;
+              distance = { kind: a.major === 0 ? 'major' : 'minor', minors: minors };
+              if (a.major === 0) {
+                add('version_distance', 'code', 'checked', 'hard', '0.x minor bump ' + a.minor + ' to ' + b.minor + ', treated as major');
+              } else {
+                add('version_distance', 'code', 'checked', minors > 5 ? 'soft' : 'none',
+                    'minor bump ' + a.major + '.' + a.minor + ' to ' + b.major + '.' + b.minor + (minors > 5 ? ', ' + minors + ' minors at once' : ''));
+              }
+            } else {
+              distance = { kind: 'patch', minors: 0 };
+              add('version_distance', 'code', 'checked', 'none', 'patch bump');
+            }
+
+            // OS family (code: both come from scans).
+            var fa = s(data.os_family_from).toLowerCase(), fb = s(data.os_family_to).toLowerCase();
+            if (!fa || !fb) {
+              add('os_family', 'code', 'not_checked', 'none', 'OS family unknown for ' + (!fa ? 'the running image' : 'the candidate'));
+            } else {
+              add('os_family', 'code', 'checked', fa === fb ? 'none' : 'hard', fa === fb ? fa + ' on both' : 'changes from ' + fa + ' to ' + fb);
+            }
+
+            // What the agent read: can only lower the level. Chart upgrades need all three.
+            var wanted = s(data.kind).toLowerCase() === 'chart' ? ['release_notes', 'chart_values', 'k8s_apis'] : ['release_notes'];
+            var given = [];
+            try { given = JSON.parse(s(data.signals) || '[]'); } catch (e) { given = []; }
+            if (Object.prototype.toString.call(given) !== '[object Array]') { given = []; }
+            for (var w = 0; w < wanted.length; w++) {
+              var found = null;
+              for (var g = 0; g < given.length; g++) {
+                if (given[g] && s(given[g].signal) === wanted[w]) { found = given[g]; break; }
+              }
+              if (!found) { add(wanted[w], 'AI-read', 'not_checked', 'none', 'not read'); continue; }
+              var state = s(found.state);
+              if (state !== 'checked' && state !== 'partial') { state = 'not_checked'; }
+              var risk = s(found.risk);
+              if (risk !== 'none' && risk !== 'soft' && risk !== 'hard') { risk = 'soft'; }
+              if (risk === 'none' && state === 'checked' && !s(found.quote)) { state = 'partial'; }
+              add(wanted[w], 'AI-read', state, risk, s(found.quote) || 'no quote');
+            }
+
+            var level = hard.length ? 'Low' : (soft.length >= 2 ? 'Low' : (soft.length === 1 ? 'Medium' : 'High'));
+            return {
+              level: level,
+              opens_pr: level !== 'Low',
+              hard: hard,
+              soft: soft,
+              version_distance: distance,
+              evidence: lines,
+              not_counted: 'Image config (user, entrypoint, ports) is not checked and not part of the level.'
+            };
+          })()
+  timeout: "1m"
