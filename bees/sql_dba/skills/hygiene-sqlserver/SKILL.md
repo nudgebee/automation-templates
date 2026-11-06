@@ -7,7 +7,9 @@ description: The daily hygiene checks for one SQL Server database. Each check na
 Every check below goes into `checked` as `{target: <database>, check: <name>}`.
 - If its count is above 0: one finding.
   - `value` is the count, with the unit given below.
-  - `detail` holds the top rows of the detail query (at most 20), each with what to do.
+  - `detail` holds the top rows of the detail query (at most 20) by name, each with what to do.
+    Run the detail query for every check that found something. A count with no names is not a
+    finding a person can act on.
 - If the count is 0: no finding.
 
 Database-level queries run in the integration's database. Pass `database` when the
@@ -81,5 +83,6 @@ Fix: have the owning client commit or end it. Old transactions hold locks and lo
 
 Detail: the failed jobs' names (join `msdb.dbo.sysjobs`), `TOP 20`.
 
-If msdb can't be read (the login lacks `SQLAgentReaderRole`): one finding, severity `info`,
-"could not read Agent job history", and no `value`.
+If msdb can't be read: one finding, severity `info`, title "could not read Agent job history",
+the error in `detail`, and no `value`. Don't guess why. On RDS the job history can stay closed
+even with `SQLAgentReaderRole`, and SQL Server Express has no Agent at all.

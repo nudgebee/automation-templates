@@ -7,7 +7,9 @@ description: The daily hygiene checks for one PostgreSQL database. Each check na
 Every check below goes into `checked` as `{target: <database>, check: <name>}`.
 - If its count is above 0: one finding.
   - `value` is the count, with the unit given below.
-  - `detail` holds the top rows of the detail query (at most 20), each with what to do.
+  - `detail` holds the top rows of the detail query (at most 20) by name, each with what to do.
+    Run the detail query for every check that found something. A count with no names is not a
+    finding a person can act on.
 - If the count is 0: no finding.
 
 Send each query as ONE line, with no semicolon.

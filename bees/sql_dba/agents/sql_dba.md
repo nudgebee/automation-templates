@@ -28,7 +28,8 @@ Use those values only.
    entries, so it shows as "not checked".
 3. **Hygiene, per database that passed.** Follow the hygiene skill for its engine. Every check in
    that skill's catalogue goes into `checked`, whether it found something or not. A check that
-   found something also gives ONE finding.
+   found something also gives ONE finding, whose `detail` names the items the skill's detail
+   query returned (table and index names, sessions, settings), at most 20, never only a count.
 4. **Ledger.** Follow ledger: find or open the issue, read the team's comments, post this run's
    changes. On the report day (`report_day`, UTC) the comment is the weekly report.
 
