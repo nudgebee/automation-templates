@@ -1,0 +1,5 @@
+name: Report issue exists, but none of the production namespaces exist on the cluster
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: none
+  runs: [update_report]
