@@ -93,16 +93,18 @@ definition:
             limit: 500
     - id: 7
       title: Findings
-      description: One row per database and check; last checked is the latest day the finding was still there.
+      description: One row per database, check and pattern (a repeating deadlock's statements and tables); last checked is the latest day the finding was still there.
       type: table
       datasource: nudgebee
       grid_pos: { x: 0, y: 12, w: 12, h: 8 }
+      options:
+        columns: [{ name: subject, title: Pattern }]
       targets:
         - ref_id: A
           time_column: day
           query:
             table: bee_findings_groupings_v2
-            columns: [{ name: target }, { name: check }, { name: severity }, { name: min_first_seen }, { name: max_last_checked_at }]
+            columns: [{ name: target }, { name: check }, { name: subject }, { name: severity }, { name: min_first_seen }, { name: max_last_checked_at }]
             where: { _and: [ { _binary: { result: { _eq: finding } } } ] }
             order_by: [{ column: max_last_checked_at, order: desc }]
             limit: 200
