@@ -26,9 +26,15 @@ those namespaces. Never run `-A` or `--all-namespaces`. If `namespaces` is empty
 `stage: no_scope` and stop before anything else.
 
 ## Each run
-One image goes deep per run: its scan, its assessment, its pull request. Everything else waits in the
-plan as `pending`; the next run picks up where this one stopped. The plan comment (step 9) is written
-before any pull request (step 7), so a run that runs out of time still leaves the plan current.
+Each run does three kinds of work, in this order:
+- **Quick images:** every `pending` image that needs no scan (own image, dependency update, turn off,
+  replace, none) is settled this run, with its evidence.
+- **Scans:** up to three images that need a scan get one, started together; later runs read them.
+- **One deep image:** at most one image goes on to its assessment and pull request.
+
+Everything else waits in the plan; the next run picks up where this one stopped. The plan comment
+(step 9) is written before any pull request (step 7), so a run that runs out of time still leaves the
+plan current.
 
 1. **Where it stands.**
    - The account name is in `nudgebee_accounts_list`.
@@ -51,10 +57,15 @@ before any pull request (step 7), so a run that runs out of time still leaves th
    - The number is the sum. If it is 0 and no image in the plan is waiting on anything, answer `stage: nothing_open`.
 3. **No issue yet?** Run `open_plan` with the title above, and the number and images as its description.
 4. **Scan results.** For each open scan in the plan, follow read-scan. Record what came back.
-5. **One image.** Take the first image in the plan's order that is waiting on you: one whose open scan just came back (step 4), else the first marked `pending`. Follow choose-resolution and end it in exactly one state: `upgrade_pr`, `dependency_pr`, `turn_off`, `own_fix`, `replace` or `none`, with its evidence. Leave every other image as it is. An image already in a state is checked again only if its version or findings changed.
-6. **Ask for a scan.** If this run's image needs one, run `scan_candidate` once, never for a second image: `namespace`, `workload`, the candidate as `image` and the running image, exactly as in the workload's spec, as `baseline_image`. An image with an open scan isn't asked again. Its result:
-   - finished: read it now (read-scan) and go on with the image;
-   - still running: record the automation id, the execution id, both images and the time asked; the image stops here, and a later run reads it;
+5. **Images.** Go through the plan in its order (most findings first) and follow choose-resolution for each image that is waiting on you:
+   - an image whose scan came back (step 4): it may go deep (step 7), but only one image per run does; the others wait, marked `scanned`, for the next run;
+   - a `pending` image that needs no scan: end it now in `dependency_pr`, `turn_off`, `own_fix`, `replace` or `none`, with its evidence. Do all of these this run;
+   - a `pending` image that needs a scan (an upgrade): it goes to step 6.
+
+   An image already in a state is checked again only if its version or findings changed.
+6. **Ask for scans.** Pick up to three images that need a scan, in the plan's order, leaving out any with an open scan. Start all of them in the same step, as parallel `scan_candidate` calls, never one after another: each call can wait three minutes. For each: `namespace`, `workload`, the candidate as `image` and the running image, exactly as in the workload's spec, as `baseline_image`. An image with an open scan isn't asked again. Its result:
+   - finished: read it (read-scan); it counts as a scan that came back (step 5);
+   - still running: record the automation id, the execution id, both images and the time asked; a later run reads it;
    - waiting for approval: record the images and the time asked. The next run asks again only after 24 hours.
 7. **Fix.** Only after step 9's comment is written. Run `open_fix_pr` once per repository and change:
    - `plan_key` = `<account name>-<image name>-<target version>`, lowercase;
