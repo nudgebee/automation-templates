@@ -1,0 +1,123 @@
+title: Database health
+description: What the SQL DBA bee found on its databases, day by day. Installed with the bee.
+definition:
+  time_from: now-30d
+  panels:
+    - id: 1
+      title: Open findings
+      description: Findings on the latest day the bee checked.
+      type: stat
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 0, w: 3, h: 4 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_findings_groupings_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: count }]
+            where: { _and: [ { _binary: { result: { _eq: finding } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 2
+      title: Critical
+      description: Critical findings on the latest day, such as a long transaction or a transaction log nearly full.
+      type: stat
+      datasource: nudgebee
+      grid_pos: { x: 3, y: 0, w: 3, h: 4 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_findings_groupings_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: count }]
+            where: { _and: [ { _binary: { result: { _eq: finding } } }, { _binary: { severity: { _eq: critical } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 3
+      title: Objects to fix
+      description: Indexes and tables the findings name on the latest day (duplicate, unused or missing indexes, tables without a primary key, stale statistics).
+      type: stat
+      datasource: nudgebee
+      grid_pos: { x: 6, y: 0, w: 3, h: 4 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_findings_groupings_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: sum_value }]
+            where: { _and: [ { _binary: { unit: { _eq: objects } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 4
+      title: Checks not run
+      description: Checks the bee could not run on the latest day (database unreachable, a query failed, or the run stopped early).
+      type: stat
+      datasource: nudgebee
+      grid_pos: { x: 9, y: 0, w: 3, h: 4 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_findings_groupings_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: count }]
+            where: { _and: [ { _binary: { result: { _eq: gap } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 5
+      title: Findings per day, by severity
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 4, w: 6, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_findings_groupings_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: severity }, { name: count }]
+            where: { _and: [ { _binary: { result: { _eq: finding } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 6
+      title: Findings per day, by database
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 6, y: 4, w: 6, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_findings_groupings_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: target }, { name: count }]
+            where: { _and: [ { _binary: { result: { _eq: finding } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 7
+      title: Findings
+      description: One row per database and check; last checked is the latest day the finding was still there.
+      type: table
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 12, w: 12, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_findings_groupings_v2
+            columns: [{ name: target }, { name: check }, { name: severity }, { name: min_first_seen }, { name: max_last_checked_at }]
+            where: { _and: [ { _binary: { result: { _eq: finding } } } ] }
+            order_by: [{ column: max_last_checked_at, order: desc }]
+            limit: 200
+    - id: 8
+      title: Checks not run
+      description: Which database and check, and the last day it was not run. The run's detail says why.
+      type: table
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 20, w: 12, h: 6 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_findings_groupings_v2
+            columns: [{ name: target }, { name: check }, { name: max_last_checked_at }]
+            where: { _and: [ { _binary: { result: { _eq: gap } } } ] }
+            order_by: [{ column: max_last_checked_at, order: desc }]
+            limit: 200

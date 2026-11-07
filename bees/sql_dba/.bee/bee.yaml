@@ -73,9 +73,16 @@ output:                                  # summary, evidence and runs are built 
         title: { type: string }
         detail: { type: string }
         value: { type: number }
-        unit: { type: string }
+        unit: { enum: [objects, settings, sessions, databases, jobs] }
         link: { type: string }
       required: [target, check, severity, title]
+
+# The platform keeps one row a day per (database, check) from these fields, for the
+# Database health dashboard and the Findings tab.
+findings:
+  checked_field: checked
+  findings_field: findings
+  units: [objects, settings, sessions, databases, jobs]
 
 budget:
   # Uncached input + output per run; input read from the prompt cache does not count.

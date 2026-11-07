@@ -11,6 +11,9 @@ than read. That check is not a guarantee: the guarantee is giving it a read-only
   write is skipped.
 - **Daily hygiene:** per-engine checks in `skills/hygiene-*`, one catalogue per engine.
 - **Ledger and weekly report:** in the tracker, through `open_ledger` and `update_ledger`.
+- **Database health dashboard:** installed with the bee (`dashboards/database_health.yaml`): open and
+  critical findings, objects to fix, checks not run, and findings per day by severity and by database.
+  The bee page also gets a Findings tab with every finding of every run.
 
 **Later:** repeat deadlocks and blocking, query regressions, cost (RDS), and fix PRs.
 
