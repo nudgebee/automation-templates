@@ -118,7 +118,8 @@ findings:
     long_blocks: { kind: events, unit: blocks }
   rules:
     deadlock_repeat: { kind: sum_over, metric: deadlock_events, window: 7d, warning: 2, critical_per_day: 2, title: "Deadlock repeats" }
-    deadlocks_repeat_any: { kind: sum_over, metric: deadlocks_total, window: 7d, warning: 2, title: "Deadlocks repeat" }
+    # The catch-all for a database whose statements can't be read; quiet where a pattern is open.
+    deadlocks_repeat_any: { kind: sum_over, metric: deadlocks_total, window: 7d, warning: 2, title: "Deadlocks repeat", unless: deadlock_repeat }
     # A six-hourly snapshot sees only blocks in progress, so a baseline on it would open on any
     # momentary wait. A sweep that finds a session waiting 30s or more counts once; twice in 7 days
     # is a finding. Live blocking is the product alert path's job.
