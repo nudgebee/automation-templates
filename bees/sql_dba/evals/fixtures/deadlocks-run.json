@@ -1,0 +1,1 @@
+{"trigger":"schedule","evidence":"Deadlocks sweep: preflight, the deadlock counter gate and the blocking snapshot on every database; deadlock patterns only where the counter moved."}

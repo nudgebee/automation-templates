@@ -2,4 +2,3 @@ name: One database's login can write - it is skipped with a read_only finding, t
 trigger: fixtures/scheduled-run.json
 expect:
   verdict: partial
-  runs: [update_ledger]

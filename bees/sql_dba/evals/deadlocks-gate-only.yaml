@@ -1,0 +1,4 @@
+name: Deadlocks sweep where every database's deadlock counter equals the value in bee_metrics and nothing is blocked - one gate query per database, deadlocks_total, blocked_seconds and a zero deadlock_events reported for each, no logs, traces or code read, no notes
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked

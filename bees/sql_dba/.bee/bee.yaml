@@ -1,8 +1,8 @@
 schema: bee/v1
 name: sql_dba                            # canonical: snake_case, fixed forever
 display_name: SQL DBA Bee
-version: 0.1.0
-description: Checks your SQL Server, PostgreSQL and MySQL databases every day the way a DBA would, keeps one finding per database and check until it is fixed, writes the fix plan, and tells the team each week what got better.
+version: 0.2.0
+description: Checks your SQL Server, PostgreSQL and MySQL databases the way a DBA would - daily hygiene, and every six hours the deadlocks and blocking that repeat, with the code behind them. Findings live on the Bee page; the team hears about them only when something changed.
 author: { name: Nudgebee }
 
 install:
@@ -24,33 +24,34 @@ integrations:
     access: read
     required: false
     why: Reads MySQL performance_schema and sys with a read-only login (SELECT, PROCESS).
-  - id: tracker
-    types: [github, gitlab, jira]
-    access: write
-    required: true
-    why: Keeps one ledger issue per install with each finding's plan, its links and the team's decisions.
+  - id: code
+    types: [github]
+    access: read
+    required: false
+    why: Reads the repositories in `repos` to name the code behind a repeating deadlock.
 
 settings:
   databases:
     type: string
     title: Databases
-    description: "Comma-separated entries name:engine:database, one per database the install looks after. name is the SQL integration's name in Nudgebee (on RDS, name it after the DB instance identifier); engine is mssql, postgres or mysql; database is the database the integration connects to. Example: orders-db:postgres:orders,billing:mysql:billing"
+    description: "Comma-separated entries name:engine:database, one per database the install looks after. name is the SQL integration's name in Nudgebee (on RDS and Cloud SQL, name it after the instance); engine is mssql, postgres or mysql; database is the database the integration connects to. Example: orders-db:postgres:orders,billing:mysql:billing"
     required: true
-  tracker_project:
+  repos:
     type: string
-    title: Ledger project
-    description: Where the ledger issue goes. A repository as owner/name for GitHub or GitLab, or a Jira project key.
-    required: true
+    title: Code repositories
+    description: "Comma-separated GitHub repositories as owner/name whose code uses these databases, e.g. acme/orders-api,acme/billing. The bee reads them to name the code behind a repeating deadlock. Leave empty to stop at the service and endpoint."
+  report_channel:
+    type: channel
+    title: Report channel
+    description: Where a sweep posts what changed (new, worse and cleared findings). Nothing is posted when nothing changed, and runs by hand never post.
   max_databases:
     type: number
     title: Most databases per run
     description: A run refuses to start above this many, so one run stays inside its budget. At most 5.
     default: 3
-  report_day:
-    type: string
-    title: Report day
-    description: Day of the week (UTC) the weekly report is added to the ledger, e.g. monday.
-    default: monday
+
+report:
+  channel: report_channel
 
 output:                                  # summary, evidence and runs are built in
   verdict: { enum: [checked, partial, none] }
@@ -76,16 +77,56 @@ output:                                  # summary, evidence and runs are built 
         unit: { enum: [objects, settings, sessions, databases, jobs] }
         link: { type: string }
       required: [target, check, severity, title]
+  metrics:
+    type: array
+    items:
+      type: object
+      properties:
+        target: { type: string }
+        metric: { type: string, enum: [deadlocks_total, deadlock_events, blocked_seconds, long_blocks] }
+        subject: { type: string }
+        value: { type: number }
+      required: [target, metric, value]
+  notes:
+    type: array
+    items:
+      type: object
+      properties:
+        target: { type: string }
+        check: { type: string }
+        subject: { type: string }
+        detail: { type: string }
+        code: { type: string }
+        fix: { type: string }
+        earlier_fixes: { type: string }
+        links: { type: array, items: { type: string } }
+      required: [target, check, subject, detail]
 
-# The platform keeps one row a day per (database, check) from these fields, for the
-# Database health dashboard and the Findings tab.
+# The platform keeps one row a day per (database, check) from checked and findings, the raw
+# numbers in metrics per sweep, and the latest note per (database, check, subject). The rules
+# below turn the numbers into findings; the bee never decides a repeat itself.
 findings:
   checked_field: checked
   findings_field: findings
-  units: [objects, settings, sessions, databases, jobs]
+  units: [objects, settings, sessions, databases, jobs, deadlocks, blocks, seconds]
+  metrics_field: metrics
+  notes_field: notes
+  metrics:
+    deadlocks_total: { kind: counter, unit: deadlocks }
+    deadlock_events: { kind: events, unit: deadlocks }
+    blocked_seconds: { kind: gauge, unit: seconds }
+    long_blocks: { kind: events, unit: blocks }
+  rules:
+    deadlock_repeat: { kind: sum_over, metric: deadlock_events, window: 7d, warning: 2, critical_per_day: 2, title: "Deadlock repeats" }
+    deadlocks_repeat_any: { kind: sum_over, metric: deadlocks_total, window: 7d, warning: 2, title: "Deadlocks repeat" }
+    # A six-hourly snapshot sees only blocks in progress, so a baseline on it would open on any
+    # momentary wait. A sweep that finds a session waiting 30s or more counts once; twice in 7 days
+    # is a finding. Live blocking is the product alert path's job.
+    blocking_repeat: { kind: sum_over, metric: long_blocks, window: 7d, warning: 2, title: "Blocking repeats" }
 
 budget:
   # Uncached input + output per run; input read from the prompt cache does not count.
+  # One hygiene sweep and four deadlock sweeps a day, plus room for runs by hand.
   max_tokens_per_run: 400000
-  max_runs_per_day: 4
+  max_runs_per_day: 8
   timeout: 20m

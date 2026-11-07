@@ -1,5 +1,4 @@
-name: Three databases with read-only logins, no ledger issue yet, duplicate and unused indexes on one
+name: Three databases with read-only logins, duplicate and unused indexes on one
 trigger: fixtures/scheduled-run.json
 expect:
   verdict: checked
-  runs: [open_ledger, update_ledger]
