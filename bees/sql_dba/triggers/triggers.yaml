@@ -1,0 +1,9 @@
+# Run A, every day: preflight, hygiene on every database, the ledger, and on the report day the
+# weekly report. Run B (deadlocks, blocking, regressions) and cost come in later versions.
+triggers:
+  - type: schedule
+    params:
+      cron: "0 1 * * *"
+      evidence: "Run A: daily hygiene sweep; weekly report on the report day."
+    dedupe: "daily-a"
+    window: 20h

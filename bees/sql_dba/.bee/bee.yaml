@@ -1,0 +1,91 @@
+schema: bee/v1
+name: sql_dba                            # canonical: snake_case, fixed forever
+display_name: SQL DBA Bee
+version: 0.1.0
+description: Checks your SQL Server, PostgreSQL and MySQL databases every day the way a DBA would, keeps one finding per database and check until it is fixed, writes the fix plan, and tells the team each week what got better.
+author: { name: Nudgebee }
+
+install:
+  account_types: [aws, gcp, azure, k8s]
+
+integrations:
+  - id: mssql
+    types: [mssql]
+    access: read
+    required: false
+    why: Reads SQL Server system views with a read-only login (VIEW SERVER STATE, VIEW DATABASE STATE).
+  - id: postgres
+    types: [postgresql]
+    access: read
+    required: false
+    why: Reads PostgreSQL statistics views with a read-only login (pg_monitor).
+  - id: mysql
+    types: [mysql]
+    access: read
+    required: false
+    why: Reads MySQL performance_schema and sys with a read-only login (SELECT, PROCESS).
+  - id: tracker
+    types: [github, gitlab, jira]
+    access: write
+    required: true
+    why: Keeps one ledger issue per install with each finding's plan, its links and the team's decisions.
+
+settings:
+  databases:
+    type: string
+    title: Databases
+    description: "Comma-separated entries name:engine:database, one per database the install looks after. name is the SQL integration's name in Nudgebee (on RDS, name it after the DB instance identifier); engine is mssql, postgres or mysql; database is the database the integration connects to. Example: orders-db:postgres:orders,billing:mysql:billing"
+    required: true
+  tracker_project:
+    type: string
+    title: Ledger project
+    description: Where the ledger issue goes. A repository as owner/name for GitHub or GitLab, or a Jira project key.
+    required: true
+  max_databases:
+    type: number
+    title: Most databases per run
+    description: A run refuses to start above this many, so one run stays inside its budget. At most 5.
+    default: 3
+  report_day:
+    type: string
+    title: Report day
+    description: Day of the week (UTC) the weekly report is added to the ledger, e.g. monday.
+    default: monday
+
+output:                                  # summary, evidence and runs are built in
+  verdict: { enum: [checked, partial, none] }
+  checked:
+    type: array
+    items:
+      type: object
+      properties:
+        target: { type: string }
+        check: { type: string }
+      required: [target, check]
+  findings:
+    type: array
+    items:
+      type: object
+      properties:
+        target: { type: string }
+        check: { type: string }
+        severity: { enum: [info, warning, critical] }
+        title: { type: string }
+        detail: { type: string }
+        value: { type: number }
+        unit: { enum: [objects, settings, sessions, databases, jobs] }
+        link: { type: string }
+      required: [target, check, severity, title]
+
+# The platform keeps one row a day per (database, check) from these fields, for the
+# Database health dashboard and the Findings tab.
+findings:
+  checked_field: checked
+  findings_field: findings
+  units: [objects, settings, sessions, databases, jobs]
+
+budget:
+  # Uncached input + output per run; input read from the prompt cache does not count.
+  max_tokens_per_run: 400000
+  max_runs_per_day: 4
+  timeout: 20m
