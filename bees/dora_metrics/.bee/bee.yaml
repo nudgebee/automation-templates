@@ -1,7 +1,7 @@
 schema: bee/v1
 name: dora_metrics                      # canonical: snake_case, fixed forever
 display_name: DORA Metrics Bee
-version: 0.2.2
+version: 0.2.3
 description: Reports the four DORA metrics for this cluster once a week (deployment frequency, lead time for changes, change failure rate and time to restore), with the deploys and alerts behind each number and what changed since last week.
 author: { name: Nudgebee }
 
@@ -94,7 +94,8 @@ output:                                 # summary, evidence and runs are built i
 # The platform keeps the four metrics of every weekly report (one point a week) and the deploy,
 # change and failure counts per namespace and workload, for the bee's dashboard. A metric the run could not work
 # out is a warning finding ("Not available: <reason>"), never a 0. Any other finding is a caveat on a
-# metric that has a number (it rests on part of the data).
+# metric that has a number (it rests on part of the data). The rule below adds one finding per
+# workload whose changes keep failing.
 findings:
   checked_field: checked
   findings_field: findings
@@ -109,6 +110,10 @@ findings:
     changes: { kind: events, unit: changes }
     failed_changes: { kind: events, unit: changes }
     failures: { kind: events, unit: failures }
+  rules:
+    # A workload whose changes keep failing. One weekly sweep reports the week's failed changes, so
+    # the window is 6 days: it holds the latest sweep and never last week's, which ran 7 days before.
+    failing_changes: { kind: sum_over, metric: failed_changes, window: 6d, warning: 3, title: "Changes keep failing" }
 
 budget:
   # Uncached input + output per run; input read from the prompt cache does not count.

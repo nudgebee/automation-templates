@@ -24,7 +24,8 @@ and a run by hand never shifts them.
 Every number comes from one aggregate read (the platform's events, the cluster's metrics), so a
 cluster that deploys hundreds of times a week costs the same as a quiet one. A metric it can't read
 is reported as "not available" with the reason, never as zero, and is listed on the dashboard under
-**Missing metrics and caveats**. A quiet week (no changes, no failures) is worked out, with no
+**Findings**, next to each workload whose changes keep failing (3 or more failed changes in a
+week, a finding the platform derives from the weekly counts). A quiet week (no changes, no failures) is worked out, with no
 number.
 
 Needs: a tracker (GitHub, GitLab or Jira) for the report. Optional: a GitHub or GitLab integration

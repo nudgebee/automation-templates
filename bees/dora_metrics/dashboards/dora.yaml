@@ -65,7 +65,7 @@ definition:
             limit: 500
     - id: 5
       title: Deploys per day, week over week
-      description: One point per weekly report, on the day it ran. A week with no point had no number (see Missing metrics and caveats).
+      description: One point per weekly report, on the day it ran. A week with no point had no number (see Findings).
       type: timeseries
       datasource: nudgebee
       grid_pos: { x: 0, y: 4, w: 6, h: 7 }
@@ -184,19 +184,19 @@ definition:
             order_by: [{ column: day, order: desc }, { column: sum_amount, order: desc }]
             limit: 200
     - id: 13
-      title: Missing metrics and caveats
-      description: Per report day, a metric the report could not work out ("Not available" and why), or one that rests on part of the data, such as deploys that are a lower bound.
+      title: Findings
+      description: Per report day, workloads whose changes keep failing (3 or more failed changes in the week), a metric the report could not work out ("Not available" and why), and a metric that rests on part of the data, such as deploys that are a lower bound.
       type: table
       datasource: nudgebee
       grid_pos: { x: 0, y: 34, w: 12, h: 6 }
       options:
-        columns: [{ name: day, title: Report day }, { name: check, title: Metric }, { name: title, title: What }, { name: severity, title: Severity }]
+        columns: [{ name: day, title: Report day }, { name: check, title: Check }, { name: subject, title: Workload }, { name: title, title: What }, { name: value, title: Count }, { name: unit, title: Unit }, { name: severity, title: Severity }]
       targets:
         - ref_id: A
           time_column: day
           query:
             table: bee_findings_v2
-            columns: [{ name: day }, { name: check }, { name: title }, { name: severity }]
+            columns: [{ name: day }, { name: check }, { name: subject }, { name: title }, { name: value }, { name: unit }, { name: severity }]
             where: { _and: [ { _binary: { result: { _eq: finding } } } ] }
             order_by: [{ column: day, order: desc }]
             limit: 50
