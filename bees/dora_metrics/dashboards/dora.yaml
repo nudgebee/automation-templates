@@ -65,7 +65,7 @@ definition:
             limit: 500
     - id: 5
       title: Deploys per day, week over week
-      description: One point per weekly report. A week with no point had no number (see Metrics not worked out).
+      description: One point per weekly report, on the day it ran. A week with no point had no number (see Missing metrics and caveats).
       type: timeseries
       datasource: nudgebee
       grid_pos: { x: 0, y: 4, w: 6, h: 7 }
@@ -121,7 +121,7 @@ definition:
             order_by: [{ column: day, order: desc }]
             limit: 500
     - id: 9
-      title: Deploys per week, by namespace
+      title: Deploys per weekly report, by namespace
       type: bar
       datasource: nudgebee
       grid_pos: { x: 0, y: 18, w: 6, h: 8 }
@@ -135,7 +135,7 @@ definition:
             order_by: [{ column: day, order: desc }]
             limit: 500
     - id: 10
-      title: Failed changes per week, by namespace
+      title: Failed changes per weekly report, by namespace
       description: Changes followed by a HIGH alert on the same workload within the failure window, put on the latest change before the alert.
       type: bar
       datasource: nudgebee
@@ -151,12 +151,12 @@ definition:
             limit: 500
     - id: 11
       title: Deploys by workload
-      description: Each weekly report's deploys per workload, most first.
+      description: Each weekly report's deploys per workload, most first. A report covers the 7 days before the day it ran.
       type: table
       datasource: nudgebee
       grid_pos: { x: 0, y: 26, w: 6, h: 8 }
       options:
-        columns: [{ name: target, title: Namespace }, { name: subject, title: Workload }, { name: sum_amount, title: Deploys }, { name: day, title: Week of }]
+        columns: [{ name: target, title: Namespace }, { name: subject, title: Workload }, { name: sum_amount, title: Deploys }, { name: day, title: Report week }]
       targets:
         - ref_id: A
           time_column: day
@@ -168,12 +168,12 @@ definition:
             limit: 200
     - id: 12
       title: Failures by workload
-      description: Each weekly report's HIGH alerts per workload, most first.
+      description: Each weekly report's HIGH alerts per workload, most first. A report covers the 7 days before the day it ran.
       type: table
       datasource: nudgebee
       grid_pos: { x: 6, y: 26, w: 6, h: 8 }
       options:
-        columns: [{ name: target, title: Namespace }, { name: subject, title: Workload }, { name: sum_amount, title: Failures }, { name: day, title: Week of }]
+        columns: [{ name: target, title: Namespace }, { name: subject, title: Workload }, { name: sum_amount, title: Failures }, { name: day, title: Report week }]
       targets:
         - ref_id: A
           time_column: day
@@ -184,30 +184,13 @@ definition:
             order_by: [{ column: day, order: desc }, { column: sum_amount, order: desc }]
             limit: 200
     - id: 13
-      title: Metrics not worked out
-      description: A metric a weekly report had no number for (the cluster, its metrics or the tracker could not be read). The run's detail says why.
+      title: Missing metrics and caveats
+      description: Per report day, a metric the report could not work out ("Not available" and why), or one that rests on part of the data, such as deploys that are a lower bound.
       type: table
       datasource: nudgebee
-      grid_pos: { x: 0, y: 34, w: 6, h: 6 }
+      grid_pos: { x: 0, y: 34, w: 12, h: 6 }
       options:
-        columns: [{ name: check, title: Metric }, { name: max_last_checked_at, title: Last report }]
-      targets:
-        - ref_id: A
-          time_column: day
-          query:
-            table: bee_findings_groupings_v2
-            columns: [{ name: check }, { name: max_last_checked_at }]
-            where: { _and: [ { _binary: { result: { _eq: gap } } } ] }
-            order_by: [{ column: max_last_checked_at, order: desc }]
-            limit: 50
-    - id: 14
-      title: Caveats
-      description: A metric that has a number but rests on part of the data, such as deploys that are a lower bound or lead time from fewer deploys.
-      type: table
-      datasource: nudgebee
-      grid_pos: { x: 6, y: 34, w: 6, h: 6 }
-      options:
-        columns: [{ name: check, title: Metric }, { name: title, title: Caveat }, { name: severity, title: Severity }, { name: day, title: Day }]
+        columns: [{ name: day, title: Report day }, { name: check, title: Metric }, { name: title, title: What }, { name: severity, title: Severity }]
       targets:
         - ref_id: A
           time_column: day

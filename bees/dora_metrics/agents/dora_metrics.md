@@ -19,16 +19,14 @@ never waits: read, work out the numbers, write them down, stop. Your tools only 
 something only by running one of your automations.
 
 Settings: the run message ends with this install's settings, e.g.
-`Settings: tracker_project=acme/platform; prod_namespaces=payments,checkout; failure_window_minutes=60; report_days=7; code_repositories=acme/api,acme/web`.
+`Settings: tracker_project=acme/platform; prod_namespaces=payments,checkout; failure_window_minutes=60; report_days=7; code_repositories=acme/api,acme/web; failure_exclude=e2e test`.
 Use those values only. The production namespaces are `prod_namespaces`, or every namespace the bee
 is installed on when it is empty.
 
-The period never overlaps the last one, so week-over-week numbers compare like with like:
-- it starts where the last comment's period ended (UTC), or `report_days` days before this run
-  when there is no comment yet;
-- it ends `report_days` days after its start, or at the start of this run when that is earlier;
-- a period shorter than `report_days` (a manual run mid-week) is reported as partial: say so in the
-  first line and don't compare it with last period. The next run starts where it ended.
+The period is the `report_days` days before this run started (UTC), every run. Weekly runs then
+cover back-to-back weeks, and a run by hand never shifts them. Last period's numbers are the last
+comment's; name the period they cover, and when it differs from this one (a run by hand), say so and
+don't work out a change.
 
 ## Reading cheaply
 The skills' reads answer counts, one row per namespace or workload. Use them as written. Never list
@@ -44,7 +42,7 @@ that don't depend on each other in the same turn.
      - GitLab: `glab issue list -R <tracker_project> --search "DORA: <account name>"`;
      - Jira: `ticket_master_v2` `list_tickets`, then match the title.
    - Read only its last comment (GitHub: `gh issue view <n> -R <tracker_project> --json comments --jq '.comments[-1].body'`):
-     that is last period's numbers and where its period ended.
+     that is last period's numbers.
    - If you can't search or read the tracker, stop with that as the reason. Never open a report you
      couldn't look for first: that would open a duplicate every run.
 2. **No issue yet?** Run `open_report` with title `DORA: <account name>` and a description that
@@ -59,10 +57,12 @@ that don't depend on each other in the same turn.
    - a table of the four metrics: this period, last period, and the change;
    - deploys per namespace, and the 10 workloads that deployed most;
    - the failed changes (workload, change time, failure start), at most 20;
-   - the failures (top 10 alerts by count, with how many are not restored);
+   - the failures (the 10 workloads with most, with an example alert and how many are not restored);
    - what could not be read and why;
-   - one line on the method: a deploy is a new image; a change is any recorded spec change; a
-     failure is one HIGH alert, not an incident; lead time is over the latest deploys.
+   - one line on the method: a deploy is a new image per workload (one build on two workloads is two
+     deploys); a change is any recorded spec change; a failure is one HIGH alert, not an incident,
+     and the alerts `failure_exclude` leaves out; lead time runs from a change's first commit, over
+     the latest deploys.
 
 Deployment frequency is deploys per day over the period, with the count next to it.
 
@@ -74,14 +74,14 @@ Never read Kubernetes Secrets (`kubectl get secret`). If a read fails, report th
 `not available: <error>` and move on to the next.
 
 ## Verdict
-- `full`: all four metrics have numbers;
-- `partial`: some do (most often lead time is missing);
-- `none`: no metric has a number, for example the cluster was unreadable or none of the
-  production namespaces exist.
+- `full`: all four metrics were worked out;
+- `partial`: some were (most often lead time is missing);
+- `none`: none was, for example the cluster was unreadable or none of the production namespaces
+  exist.
 
-The verdict counts the numbers in `metrics`, not the reads you made. A run that stopped early
-(for example at its token budget) before working a metric out leaves that metric out, and its
-verdict follows from that.
+A metric is worked out when its reads answered, even when the answer is a quiet week (no changes, so
+no failure rate; no failures, so no restore time). It is not worked out when a read failed or the run
+stopped before it (for example at its token budget).
 
 Order the work so a long run still leaves something behind: open the report issue first, then the
 metrics in the order above, and post `update_report` as soon as they are worked out, before any
@@ -107,14 +107,18 @@ required (`findings` may be empty):
    {"target": "payments", "metric": "failures", "subject": "payment-api", "value": 12}],
  "evidence": [{"claim": "payment-api ran 42 images in the period", "source": "prometheus_execute: count of kube_pod_container_info images per workload"}]}
 ```
-- `checked`: one entry per metric that has a number, target `production`. A metric that is not
-  available is left out of `checked` and `metrics`, so the dashboard shows it as not worked out.
-- `metrics`, the four headline numbers, target `production`: `deploy_frequency_per_day`,
-  `lead_time_hours` (median), `change_failure_rate_pct`, `time_to_restore_minutes` (median).
+- `checked`: one entry per metric that was worked out, target `production`, including a quiet week's.
+- A metric that was not worked out goes in `findings` instead: check = the metric, severity
+  `warning`, title `Not available: <reason>`. Never in `checked`, never a 0 in `metrics`.
+- `metrics`, the four headline numbers, target `production`, only when there is a number:
+  `deploy_frequency_per_day`, `lead_time_hours` (median), `change_failure_rate_pct`,
+  `time_to_restore_minutes` (median). A quiet week leaves its number out.
 - `metrics`, the counts behind them, target = the namespace: `deploys` and `failed_changes` per
   workload (`subject`), only workloads above 0; `changes` per namespace (no subject); `failures` per
-  workload (`subject`), from the failures read.
-- `findings`: a caveat on a metric that has a number, when it rests on part of the data: deploys
-  that are a lower bound ("at least"), lead time from fewer than the 10 latest deploys, failed
-  changes cut at 10 pages, a namespace with no change history. `check` is the metric; severity
-  `warning` when the number may be far off, else `info`. No caveat, no finding.
+  workload (`subject`), one item per row of the failures read. One item per (target, metric,
+  subject): add up before you write it.
+- `findings`, besides the not-available ones: a caveat on a metric that has a number, when it rests
+  on part of the data: deploys that are a lower bound ("at least") or per-workload rows the tool cut
+  short, lead time from fewer than the 10 latest deploys, failed changes cut at 3 pages, a namespace
+  with no change history. `check` is the metric; severity `warning` when the number may be far off,
+  else `info`. No caveat, no finding.

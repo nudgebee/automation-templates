@@ -18,32 +18,38 @@ be read. If none of them exist, every metric is "not available: none of the prod
 (<list>) exist on this cluster", never 0, and the run's verdict is `none`.
 
 ## 1. Count from the cluster's metrics (first choice)
-One `prometheus_execute` call, `instant: true`, `end_time` = the period's end, where `<ns_regex>` is the
-production namespaces joined with `|` and `<period>` is the period's length (`7d`, or hours such as
-`80h` for a partial period):
+Two `prometheus_execute` calls in the same turn, both `instant: true` with `end_time` = the period's
+end, where `<ns_regex>` is the production namespaces joined with `|` and `<period>` the period's length
+(`7d`). The first is per workload:
 
 ```
 max by (namespace, workload) (
   count by (namespace, workload, container) (
-    count by (namespace, workload, container, image) (
-      label_replace(label_replace(
-        max_over_time(kube_pod_container_info{namespace=~"<ns_regex>"}[<period>]),
-        "workload", "$1", "pod", "^(.+)-[0-9]+$"),
-        "workload", "$1", "pod", "^(.+)-[a-z0-9]{6,10}-[a-z0-9]{5}$")))) - 1
+    count by (namespace, workload, container, image_spec) (
+      max_over_time(kube_pod_container_info{namespace=~"<ns_regex>"}[<period>])
+      * on (namespace, pod) group_left(workload) max by (namespace, pod, workload) (
+          label_replace(max_over_time(kube_pod_owner{namespace=~"<ns_regex>", owner_kind="ReplicaSet"}[<period>]), "workload", "$1", "owner_name", "^(.+)-[a-z0-9]{6,10}$")
+          or label_replace(max_over_time(kube_pod_owner{namespace=~"<ns_regex>", owner_kind=~"StatefulSet|DaemonSet"}[<period>]), "workload", "$1", "owner_name", "^(.+)$"))))) - 1 > 0
 ```
 
-Each row is a workload and the number of images it ran in the period less one: the image it was
-already running when the period began. That is its deploys. A row with an empty `workload` is pods of
-a Job, CronJob or DaemonSet; leave it out and say DaemonSet deploys are not counted.
+The second is the same query wrapped in `sum by (namespace) ( ... )`: the deploys per namespace.
 
-- The metric is missing, or the query errors: go to step 2.
-- A workload created during the period counts its first image as a deploy only when it replaced
-  another; say so if one looks new.
+Each row of the first is a workload (Deployment, StatefulSet or DaemonSet, named from the pod's
+owner) and the number of images it ran in the period less one, the image it already ran when the
+period began: its deploys. Workloads with none are left out. The namespace sums are the totals; when
+the tool says the per-workload answer was cut short, use the sums for the totals and the rows it
+showed for the per-workload counts, and say so.
+
+Limits: a rollback to an image the workload ran earlier in the period is not counted again, and a
+deploy that changes two containers at once counts once.
+
+- `kube_pod_container_info` or `kube_pod_owner` is missing, or the query errors: go to step 2.
+- `image_spec` is missing on this cluster: run the same queries with `image` in its place.
 
 ## 2. Fall back to ReplicaSets
 Only when step 1 could not be read. One call per namespace; only `grep`, `cut`, `sort`, `uniq`, `head`,
-`tail`, `wc` and `tr` may follow a pipe (loops, `awk` and scripts are refused), where `<days>` is the
-period's dates joined with `|`, for example `2026-03-02|2026-03-03|...`:
+`tail`, `wc` and `tr` may follow a pipe (loops, `awk`, `date` and scripts are refused), where `<days>`
+is the period's dates joined with `|`, for example `2026-03-02|2026-03-03|...`:
 
 ```
 kubectl get rs -n <ns> -o jsonpath='{range .items[*]}{.metadata.creationTimestamp}{" "}{.metadata.ownerReferences[0].name}{" "}{.spec.template.spec.containers[*].image}{"\n"}{end}' | grep -E '^(<days>)' | cut -d' ' -f2- | sort -u | cut -d' ' -f1 | uniq -c | sort -rn
@@ -53,8 +59,8 @@ Each line is a count of new image sets per Deployment. Kubernetes keeps only the
 `revisionHistoryLimit` ReplicaSets (10 by default), so a workload that deployed more often than that
 shows fewer: also run `kubectl get rs -n <ns> --sort-by=.metadata.creationTimestamp -o custom-columns='CREATED:.metadata.creationTimestamp' --no-headers | head -1`, and when the oldest kept one is newer
 than the period's start, report deployment frequency as "at least <n>" for that namespace and add a
-finding (see the agent). StatefulSets and DaemonSets are not counted on this path; say so.
+caveat (see the agent). StatefulSets and DaemonSets are not counted on this path; say so.
 
 ## 3. Keep, per workload
 Namespace, workload and its deploy count, and which step it came from. Deployment frequency is the
-sum over workloads divided by the period's days.
+total over namespaces divided by the period's days.

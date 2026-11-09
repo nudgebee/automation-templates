@@ -1,7 +1,7 @@
 schema: bee/v1
 name: dora_metrics                      # canonical: snake_case, fixed forever
 display_name: DORA Metrics Bee
-version: 0.2.0
+version: 0.2.1
 description: Reports the four DORA metrics for this cluster once a week (deployment frequency, lead time for changes, change failure rate and time to restore), with the deploys and alerts behind each number and what changed since last week.
 author: { name: Nudgebee }
 
@@ -35,13 +35,18 @@ settings:
   failure_window_minutes:
     type: number
     title: Failure window
-    description: A deploy counts as failed when a high-priority alert fires on the same workload within this many minutes after it.
+    description: A change counts as failed when a HIGH alert starts on the same workload within this many minutes after it, before the workload's next change.
     default: 60
   report_days:
     type: number
     title: Report period
     description: How many days each report covers.
     default: 7
+  failure_exclude:
+    type: string
+    title: Alerts that are not failures
+    description: Comma-separated text; a HIGH alert whose title contains any of it does not count as a production failure, for example test alerts. Empty means every HIGH alert counts.
+    default: ""
   code_repositories:
     type: string
     title: Code repositories
@@ -88,8 +93,8 @@ output:                                 # summary, evidence and runs are built i
 
 # The platform keeps the four metrics of every weekly report (one point a week) and the deploy,
 # change and failure counts per namespace and workload, for the bee's dashboard. A metric the run could not work
-# out is left out of checked and metrics, so it shows as not worked out, never as 0. A finding is a
-# caveat on a metric that has a number (it rests on part of the data).
+# out is a warning finding ("Not available: <reason>"), never a 0. Any other finding is a caveat on a
+# metric that has a number (it rests on part of the data).
 findings:
   checked_field: checked
   findings_field: findings
