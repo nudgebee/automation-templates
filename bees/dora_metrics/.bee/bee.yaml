@@ -1,7 +1,7 @@
 schema: bee/v1
 name: dora_metrics                      # canonical: snake_case, fixed forever
 display_name: DORA Metrics Bee
-version: 0.1.2
+version: 0.2.0
 description: Reports the four DORA metrics for this cluster once a week (deployment frequency, lead time for changes, change failure rate and time to restore), with the deploys and alerts behind each number and what changed since last week.
 author: { name: Nudgebee }
 
@@ -42,9 +42,68 @@ settings:
     title: Report period
     description: How many days each report covers.
     default: 7
+  code_repositories:
+    type: string
+    title: Code repositories
+    description: Comma-separated repositories (owner/name) whose commits the image tags name. Lead time looks a deploy's commit up there when the workload's own repository annotation does not have it. Empty means only that annotation is used.
+    default: ""
 
 output:                                 # summary, evidence and runs are built in
   verdict: { enum: [full, partial, none] }      # how many of the four metrics have numbers
+  checked:
+    type: array
+    items:
+      type: object
+      properties:
+        target: { type: string }
+        check: { type: string, enum: [deployment_frequency, lead_time, change_failure_rate, time_to_restore] }
+      required: [target, check]
+  findings:
+    type: array
+    items:
+      type: object
+      properties:
+        target: { type: string }
+        check: { type: string, enum: [deployment_frequency, lead_time, change_failure_rate, time_to_restore] }
+        severity: { enum: [info, warning, critical] }
+        title: { type: string }
+        detail: { type: string }
+        value: { type: number }
+        unit: { enum: [deploys, changes, failures] }
+        link: { type: string }
+      required: [target, check, severity, title]
+  metrics:
+    type: array
+    items:
+      type: object
+      properties:
+        target: { type: string }
+        metric:
+          type: string
+          enum: [deploy_frequency_per_day, lead_time_hours, change_failure_rate_pct, time_to_restore_minutes,
+                 deploys, changes, failed_changes, failures]
+        subject: { type: string }
+        value: { type: number }
+      required: [target, metric, value]
+
+# The platform keeps the four metrics of every weekly report (one point a week) and the deploy,
+# change and failure counts per namespace and workload, for the bee's dashboard. A metric the run could not work
+# out is left out of checked and metrics, so it shows as not worked out, never as 0. A finding is a
+# caveat on a metric that has a number (it rests on part of the data).
+findings:
+  checked_field: checked
+  findings_field: findings
+  units: [deploys, changes, failures, deploys_per_day, hours, minutes, percent]
+  metrics_field: metrics
+  metrics:
+    deploy_frequency_per_day: { kind: gauge, unit: deploys_per_day }
+    lead_time_hours: { kind: gauge, unit: hours }
+    change_failure_rate_pct: { kind: gauge, unit: percent }
+    time_to_restore_minutes: { kind: gauge, unit: minutes }
+    deploys: { kind: events, unit: deploys }
+    changes: { kind: events, unit: changes }
+    failed_changes: { kind: events, unit: changes }
+    failures: { kind: events, unit: failures }
 
 budget:
   # Uncached input + output per run; input read from the prompt cache does not count.

@@ -1,0 +1,219 @@
+title: DORA metrics
+description: The four DORA metrics of every weekly report, week over week, and the deploys, changes and failures behind them. Installed with the bee.
+definition:
+  time_from: now-90d
+  panels:
+    - id: 1
+      title: Deploys per day
+      description: Deployment frequency in the latest weekly report. A deploy is a new container image on a production workload.
+      type: stat
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 0, w: 3, h: 4 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: deploy_frequency_per_day } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 2
+      title: Lead time (hours)
+      description: Median time from a commit to its image first running in production, over the latest deploys of the latest report.
+      type: stat
+      datasource: nudgebee
+      grid_pos: { x: 3, y: 0, w: 3, h: 4 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: lead_time_hours } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 3
+      title: Change failure rate (%)
+      description: Share of production changes followed by a HIGH alert on the same workload within the failure window, in the latest report.
+      type: stat
+      datasource: nudgebee
+      grid_pos: { x: 6, y: 0, w: 3, h: 4 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: change_failure_rate_pct } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 4
+      title: Time to restore (minutes)
+      description: Median time a HIGH production alert took to resolve, in the latest report.
+      type: stat
+      datasource: nudgebee
+      grid_pos: { x: 9, y: 0, w: 3, h: 4 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: time_to_restore_minutes } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 5
+      title: Deploys per day, week over week
+      description: One point per weekly report. A week with no point had no number (see Metrics not worked out).
+      type: timeseries
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 4, w: 6, h: 7 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: deploy_frequency_per_day } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 6
+      title: Lead time (hours), week over week
+      type: timeseries
+      datasource: nudgebee
+      grid_pos: { x: 6, y: 4, w: 6, h: 7 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: lead_time_hours } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 7
+      title: Change failure rate (%), week over week
+      type: timeseries
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 11, w: 6, h: 7 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: change_failure_rate_pct } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 8
+      title: Time to restore (minutes), week over week
+      type: timeseries
+      datasource: nudgebee
+      grid_pos: { x: 6, y: 11, w: 6, h: 7 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: time_to_restore_minutes } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 9
+      title: Deploys per week, by namespace
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 18, w: 6, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_amounts_v2
+            columns: [{ name: day, expr: date_unit, args: [week] }, { name: target }, { name: sum_amount }]
+            where: { _and: [ { _binary: { metric: { _eq: deploys } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 10
+      title: Failed changes per week, by namespace
+      description: Changes followed by a HIGH alert on the same workload within the failure window, put on the latest change before the alert.
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 6, y: 18, w: 6, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_amounts_v2
+            columns: [{ name: day, expr: date_unit, args: [week] }, { name: target }, { name: sum_amount }]
+            where: { _and: [ { _binary: { metric: { _eq: failed_changes } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 11
+      title: Deploys by workload
+      description: Each weekly report's deploys per workload, most first.
+      type: table
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 26, w: 6, h: 8 }
+      options:
+        columns: [{ name: target, title: Namespace }, { name: subject, title: Workload }, { name: sum_amount, title: Deploys }, { name: day, title: Week of }]
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_amounts_v2
+            columns: [{ name: day, expr: date_unit, args: [week] }, { name: target }, { name: subject }, { name: sum_amount }]
+            where: { _and: [ { _binary: { metric: { _eq: deploys } } } ] }
+            order_by: [{ column: day, order: desc }, { column: sum_amount, order: desc }]
+            limit: 200
+    - id: 12
+      title: Failures by workload
+      description: Each weekly report's HIGH alerts per workload, most first.
+      type: table
+      datasource: nudgebee
+      grid_pos: { x: 6, y: 26, w: 6, h: 8 }
+      options:
+        columns: [{ name: target, title: Namespace }, { name: subject, title: Workload }, { name: sum_amount, title: Failures }, { name: day, title: Week of }]
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_amounts_v2
+            columns: [{ name: day, expr: date_unit, args: [week] }, { name: target }, { name: subject }, { name: sum_amount }]
+            where: { _and: [ { _binary: { metric: { _eq: failures } } } ] }
+            order_by: [{ column: day, order: desc }, { column: sum_amount, order: desc }]
+            limit: 200
+    - id: 13
+      title: Metrics not worked out
+      description: A metric a weekly report had no number for (the cluster, its metrics or the tracker could not be read). The run's detail says why.
+      type: table
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 34, w: 6, h: 6 }
+      options:
+        columns: [{ name: check, title: Metric }, { name: max_last_checked_at, title: Last report }]
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_findings_groupings_v2
+            columns: [{ name: check }, { name: max_last_checked_at }]
+            where: { _and: [ { _binary: { result: { _eq: gap } } } ] }
+            order_by: [{ column: max_last_checked_at, order: desc }]
+            limit: 50
+    - id: 14
+      title: Caveats
+      description: A metric that has a number but rests on part of the data, such as deploys that are a lower bound or lead time from fewer deploys.
+      type: table
+      datasource: nudgebee
+      grid_pos: { x: 6, y: 34, w: 6, h: 6 }
+      options:
+        columns: [{ name: check, title: Metric }, { name: title, title: Caveat }, { name: severity, title: Severity }, { name: day, title: Day }]
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_findings_v2
+            columns: [{ name: day }, { name: check }, { name: title }, { name: severity }]
+            where: { _and: [ { _binary: { result: { _eq: finding } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 50

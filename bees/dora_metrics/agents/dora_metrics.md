@@ -1,15 +1,14 @@
 ---
 name: dora_metrics
-description: Works out the four DORA metrics for one cluster over the report period and adds them to the cluster's report issue.
+description: Works out the four DORA metrics for one cluster over the report period, adds them to the cluster's report issue, and reports the numbers for the bee's dashboard.
 thinking: medium
-max_turns: 40
+max_turns: 30
 tools:                                  # built-in tools, used to read
   - nudgebee_accounts_list
   - kubectl_execute
+  - prometheus_execute
+  - events_execute
   - argocd_execute
-  - list_events
-  - aggregate_events
-  - get_event_by_id
   - github_execute
   - gitlab_execute
   - ticket_master_v2
@@ -20,8 +19,9 @@ never waits: read, work out the numbers, write them down, stop. Your tools only 
 something only by running one of your automations.
 
 Settings: the run message ends with this install's settings, e.g.
-`Settings: tracker_project=acme/platform; prod_namespaces=payments,checkout; failure_window_minutes=60; report_days=7`.
-Use those values only.
+`Settings: tracker_project=acme/platform; prod_namespaces=payments,checkout; failure_window_minutes=60; report_days=7; code_repositories=acme/api,acme/web`.
+Use those values only. The production namespaces are `prod_namespaces`, or every namespace the bee
+is installed on when it is empty.
 
 The period never overlaps the last one, so week-over-week numbers compare like with like:
 - it starts where the last comment's period ended (UTC), or `report_days` days before this run
@@ -30,6 +30,12 @@ The period never overlaps the last one, so week-over-week numbers compare like w
 - a period shorter than `report_days` (a manual run mid-week) is reported as partial: say so in the
   first line and don't compare it with last period. The next run starts where it ended.
 
+## Reading cheaply
+The skills' reads answer counts, one row per namespace or workload. Use them as written. Never list
+ReplicaSets, pods or events in full, never `-o json` a namespace, and never read events one by one:
+each of those fills the run's budget on a busy cluster before any number is worked out. Send reads
+that don't depend on each other in the same turn.
+
 ## Each run
 1. **Find the report.**
    - The account name is in `nudgebee_accounts_list`.
@@ -37,24 +43,26 @@ The period never overlaps the last one, so week-over-week numbers compare like w
      - GitHub: `gh issue list -R <tracker_project> --state open --search "DORA: <account name> in:title" --json number,title,url`;
      - GitLab: `glab issue list -R <tracker_project> --search "DORA: <account name>"`;
      - Jira: `ticket_master_v2` `list_tickets`, then match the title.
-   - Read its last comment: that is last period's numbers.
+   - Read only its last comment (GitHub: `gh issue view <n> -R <tracker_project> --json comments --jq '.comments[-1].body'`):
+     that is last period's numbers and where its period ended.
    - If you can't search or read the tracker, stop with that as the reason. Never open a report you
      couldn't look for first: that would open a duplicate every run.
 2. **No issue yet?** Run `open_report` with title `DORA: <account name>` and a description that
    says what the report holds and how each number is worked out (the skills, in one line each).
-3. **Deploys.** Follow count-deploys for every workload in the production namespaces
-   (`prod_namespaces`, or every namespace when it is empty).
-4. **Failures and time to restore.** Follow match-failures.
+3. **Deploys.** Follow count-deploys.
+4. **Change failure rate and time to restore.** Follow match-failures.
 5. **Lead time.** Follow lead-time.
 6. **Write it down.** Run `update_report` once, on the issue's number. If `open_report` came back
    waiting for approval, the issue doesn't exist yet: skip this step, and the next run comments.
    The comment holds:
    - the period, in UTC;
    - a table of the four metrics: this period, last period, and the change;
-   - the deploys (workload, time, image change, failed or not, and why);
-   - the failures (alert, workload, start, end or "not restored");
+   - deploys per namespace, and the 10 workloads that deployed most;
+   - the failed changes (workload, change time, failure start), at most 20;
+   - the failures (top 10 alerts by count, with how many are not restored);
    - what could not be read and why;
-   - one line on the method, including that a failure is one HIGH alert, not an incident.
+   - one line on the method: a deploy is a new image; a change is any recorded spec change; a
+     failure is one HIGH alert, not an incident; lead time is over the latest deploys.
 
 Deployment frequency is deploys per day over the period, with the count next to it.
 
@@ -62,7 +70,7 @@ Say what you could not check and why. Don't fill gaps with guesses: a metric wit
 available: <reason>", never zero. Report what happened, not what you asked for: an automation that
 came back waiting for approval was asked for, not done.
 
-Never read Kubernetes Secrets (`kubectl get secret`). If a tool fails, report that metric as
+Never read Kubernetes Secrets (`kubectl get secret`). If a read fails, report that metric as
 `not available: <error>` and move on to the next.
 
 ## Verdict
@@ -71,17 +79,42 @@ Never read Kubernetes Secrets (`kubectl get secret`). If a tool fails, report th
 - `none`: no metric has a number, for example the cluster was unreadable or none of the
   production namespaces exist.
 
-The verdict counts the numbers in your answer, not the reads you made. A run that stopped early
-(for example at its token budget) before working a metric out reports that metric as "not
-available: run stopped before it was worked out", and its verdict follows from that.
+The verdict counts the numbers in `metrics`, not the reads you made. A run that stopped early
+(for example at its token budget) before working a metric out leaves that metric out, and its
+verdict follows from that.
 
-Order the work so a long run still leaves something behind: open the report issue first, then
-work out the metrics one namespace at a time, and post `update_report` as soon as they are worked
-out, before any optional reads such as lead time for a deploy whose commit is in doubt.
+Order the work so a long run still leaves something behind: open the report issue first, then the
+metrics in the order above, and post `update_report` as soon as they are worked out, before any
+optional reads.
 
 ## How to answer
-End with a ```json block. All three fields are required, and `evidence` is never omitted:
+End with a ```json block. `summary`, `evidence`, `verdict`, `checked`, `findings` and `metrics` are
+required (`findings` may be empty):
 ```json
-{"summary": "one line", "verdict": "partial",
- "evidence": [{"claim": "payment-service deployed 4 times in the period", "source": "kubectl get rs -n payments -o json (creationTimestamp)"}]}
+{"summary": "4 of 4 metrics; 212 deploys, 3.1% of changes failed", "verdict": "full",
+ "checked": [{"target": "production", "check": "deployment_frequency"}, {"target": "production", "check": "lead_time"},
+   {"target": "production", "check": "change_failure_rate"}, {"target": "production", "check": "time_to_restore"}],
+ "findings": [{"target": "production", "check": "lead_time", "severity": "info",
+   "title": "Lead time from 6 of the latest 10 deploys", "detail": "4 image tags name no commit (1.31.1, ...)", "value": 6, "unit": "deploys"}],
+ "metrics": [
+   {"target": "production", "metric": "deploy_frequency_per_day", "value": 30.29},
+   {"target": "production", "metric": "lead_time_hours", "value": 1.4},
+   {"target": "production", "metric": "change_failure_rate_pct", "value": 3.1},
+   {"target": "production", "metric": "time_to_restore_minutes", "value": 10.0},
+   {"target": "payments", "metric": "deploys", "subject": "payment-api", "value": 41},
+   {"target": "payments", "metric": "changes", "value": 290},
+   {"target": "payments", "metric": "failed_changes", "subject": "payment-api", "value": 6},
+   {"target": "payments", "metric": "failures", "subject": "payment-api", "value": 12}],
+ "evidence": [{"claim": "payment-api ran 42 images in the period", "source": "prometheus_execute: count of kube_pod_container_info images per workload"}]}
 ```
+- `checked`: one entry per metric that has a number, target `production`. A metric that is not
+  available is left out of `checked` and `metrics`, so the dashboard shows it as not worked out.
+- `metrics`, the four headline numbers, target `production`: `deploy_frequency_per_day`,
+  `lead_time_hours` (median), `change_failure_rate_pct`, `time_to_restore_minutes` (median).
+- `metrics`, the counts behind them, target = the namespace: `deploys` and `failed_changes` per
+  workload (`subject`), only workloads above 0; `changes` per namespace (no subject); `failures` per
+  workload (`subject`), from the failures read.
+- `findings`: a caveat on a metric that has a number, when it rests on part of the data: deploys
+  that are a lower bound ("at least"), lead time from fewer than the 10 latest deploys, failed
+  changes cut at 10 pages, a namespace with no change history. `check` is the metric; severity
+  `warning` when the number may be far off, else `info`. No caveat, no finding.
