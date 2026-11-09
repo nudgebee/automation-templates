@@ -1,0 +1,5 @@
+name: Cluster metrics unreadable, deploys counted from ReplicaSets as a lower bound
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: partial
+  runs: [update_report]
