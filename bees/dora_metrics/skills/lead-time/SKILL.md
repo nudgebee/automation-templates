@@ -1,11 +1,11 @@
 ---
 name: lead-time
-description: Work out lead time for changes, from a commit's time to the time it was deployed to production. Use after count-deploys, for the deploys that have a commit SHA.
+description: Work out change lead time, from a commit's time to the time it was deployed to production. Use after count-deploys, for the deploys that have a commit SHA.
 ---
-# Lead time for changes
+# Change lead time
 
 Lead time needs the commit behind a deploy and the repository it lives in. Only deploys with a
-SHA (count-deploys step 2) count.
+SHA (count-deploys step 4) count.
 
 ## 1. Find the repository
 Follow find-deploy-source for the workload. For Argo CD the repository is the Application's

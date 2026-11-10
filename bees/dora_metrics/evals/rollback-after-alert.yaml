@@ -1,0 +1,5 @@
+name: Report issue exists and no repos integration (lead time not available); one deploy is followed by a HIGH alert on its workload, rolled back 20 minutes later, and the alert resolves after the rollback
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: partial
+  runs: [update_report]
