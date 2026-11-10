@@ -1,0 +1,1 @@
+{"trigger":"schedule","evidence":"Performance sweep: preflight, then on every SQL Server database the waits, the top queries, the critical queries and the regressions from Query Store."}

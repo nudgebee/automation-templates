@@ -183,3 +183,48 @@ definition:
             where: { _and: [ { _binary: { metric: { _eq: blocked_seconds } } } ] }
             order_by: [{ column: day, order: desc }]
             limit: 500
+    - id: 13
+      title: Wait time per day, by wait type (SQL Server)
+      description: What the install's SQL Servers waited on each day, from sys.dm_os_wait_stats read once a day (benign waits left out; wait types with at least 1% of a server's wait time). Servers are added together; a day after a missed sweep covers two days.
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 50, w: 12, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_amounts_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: subject }, { name: sum_amount }]
+            where: { _and: [ { _binary: { metric: { _eq: wait_ms } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 14
+      title: Critical queries, average ms (SQL Server)
+      description: The average time of each query in the critical_queries setting over the last 24 hours, from Query Store, one point a day per query hash (a hash listed for two databases shows as one line). A finding opens when a day is well above the query's own 4 weeks before.
+      type: timeseries
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 58, w: 12, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: subject }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: query_avg_ms } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 15
+      title: Regressed queries per day, by database (SQL Server)
+      description: Queries whose last 24 hours averaged at least twice their week before, from Query Store. Each one opens a Query regressed finding with its plans, what changed and the code.
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 66, w: 12, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_amounts_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: target }, { name: sum_amount }]
+            where: { _and: [ { _binary: { metric: { _eq: query_regressed } } }, { _binary: { subject: { _neq: "" } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500

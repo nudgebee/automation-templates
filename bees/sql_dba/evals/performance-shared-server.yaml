@@ -1,0 +1,4 @@
+name: Performance sweep with two SQL Server entries on one server and no server label, and a third entry whose label is also used by an entry on another server - a shared_server info finding on each of the first two naming the other and the label to add, a server_label warning on the mistyped pair and no waits for that label, waits under every other label, shared_server and server_label in checked for every SQL Server entry, every database's own checks run
+trigger: fixtures/performance-run.json
+expect:
+  verdict: partial
