@@ -8,14 +8,19 @@ A scan is one `scan_candidate` run: the candidate image against the image the wo
 both scanned in your cluster by the same scanner, so the two sides are comparable.
 
 ## 1. Get the result
-- The run finished while you waited: its result is in the automation's answer.
-- It was still running: `workflow_execution_get` with the automation id and the execution id from
-  the plan. Read the `scan` step's output.
-  - Still running, asked less than 1 hour ago: leave it open.
-  - Still running after 1 hour, or failed or cancelled: clear it, and ask again this run, at most
-    twice per image and version. Then mark the image `not scanned` and say why.
-- It came back waiting for approval and nothing ran within 24 hours: the ask went unanswered or was
-  declined; you can't tell which. Ask again at most once, then mark it `not scanned`.
+A scan runs in the background on the platform; `scan_candidate` answers its `scan_id` at once. Read it
+with `read_scan` (`scan_id`), which answers `status` and, when done, the `result`. Keep each scan's
+`scan_id` in the plan until its result is read.
+- `status: done`: read the `result` (below). It came back this run.
+- `status: running`, asked less than 1 hour ago: leave it open; read it again before you answer, and
+  next run.
+- `status: running` after 1 hour, or an error: clear it, and ask again this run, at most twice per
+  image and version. Then mark the image `not scanned` and say why.
+- `scan_candidate` came back waiting for approval and nothing ran within 24 hours: the ask went
+  unanswered or was declined; you can't tell which. Ask again at most once, then mark it
+  `not scanned`.
+- Never ask `scan_candidate` again for an image and version whose `scan_id` is in the plan from the
+  last 24 hours: read that one.
 
 ## 2. Read the outcome
 - `scanned`: read on.

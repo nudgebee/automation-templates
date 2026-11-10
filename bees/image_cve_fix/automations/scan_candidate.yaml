@@ -1,13 +1,13 @@
 # Scans a newer tag of an image a workload runs, with the platform scanner, and compares it with the
 # running image. Change tier (it pulls an image onto a node of the cluster, never running its
-# entrypoint), so it runs on its own outside prod and asks first on prod. Nothing is stored: the
-# comparison is the step's output. A scan can take over 30 minutes, longer than a bee run, so the
-# run returns while it is still going and a later run reads the result with workflow_execution_get.
+# entrypoint), so it runs on its own outside prod and asks first on prod. The platform runs the scan in
+# the background and keeps its result: this answers a scan_id at once, and read_scan reads the result
+# by that id, in this run or a later one.
 summary: Scan a newer tag of a running image and compare it with the running one.
 slug: image_cve_fix__scan_candidate
 name: "Scan a candidate image"
-description: "Pulls a newer tag of an image a workload runs onto a node, scans it without running it, and returns which CVEs it fixes, leaves and adds compared with the running image."
-version: 1.0.0
+description: "Starts a scan of a newer tag of an image a workload runs (pulled onto a node, never run) against the running image. Answers scan_id and status at once; read the result with read_scan."
+version: 1.1.0
 definition:
   version: "v1"
   inputs:
@@ -25,5 +25,5 @@ definition:
         workload: "{{ Inputs.workload }}"
         image: "{{ Inputs.image }}"
         baseline_image: "{{ Inputs.baseline_image }}"
-      timeout: "35m"
-  timeout: "40m"
+      timeout: "3m"
+  timeout: "5m"

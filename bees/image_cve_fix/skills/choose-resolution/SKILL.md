@@ -11,6 +11,17 @@ First read what is really deployed: the workload's `spec` image, and the reposit
 (find-deploy-source). If they disagree, say so with both values in the plan. The fix may already be
 merged and not deployed. Never call that fixed, and ask the owner how it gets deployed.
 
+## 0. Why does this workload exist?
+Read the pod's owner chain before anything else: `kubectl get pod <pod> -n <ns> -o jsonpath='{.metadata.ownerReferences}'`,
+then its owner the same way, up to the top.
+- A solver pod of a cert-manager ACME challenge (owner: a `Challenge`): the image is there only while
+  the challenge is open. `kubectl get challenges.acme.cert-manager.io -n <ns>` and its `state`; one
+  `pending` for more than a day is the real problem. Say so: the finding names the stuck challenge
+  and its domain, and the next step is fixing or deleting that challenge, not the image.
+- A Job or CronJob pod, or a workload whose name or labels mark it a test or fixture (`test`, `e2e`,
+  `fixture`, `demo`): name it as such; its owner decides to turn it off (step 1) or keep it.
+- Anything else: go on.
+
 ## 1. Is it needed at all? → `turn_off`
 Ask only with hard evidence, one of:
 - the repository already disables this component;
@@ -50,8 +61,18 @@ change exactly goes in the plan with the command to run.
 An upgrade whose scan didn't finish, or was never approved, is a plan entry marked `unscanned`, never a pull request.
 
 ## 4. Your own image → `own_fix`
-A plan entry naming the move: rebuild, change the base, remove a package, or retire it. Split the
-findings by operating system and application package, and say which move clears how many.
+Before calling it `own_fix`, rule out two cheaper moves:
+- **A newer release.** Find the image's project (the repository named by the image path, e.g.
+  `ghcr.io/<owner>/<name>` → `<owner>/<name>`, or the workload's repository annotation) and read
+  `gh api repos/<owner>/<repo>/releases --jq '.[0:5][] | [.tag_name, .published_at] | @tsv'`. A newer
+  release than the running tag is an upgrade (step 3): scan it. A mirror of an upstream project
+  (`ghcr.io/<you>/qdrant` mirrors `qdrant/qdrant`) is the same: the newer upstream release is the
+  candidate; if the mirror doesn't have it yet, the next step is mirroring it.
+- **A newer build already made.** A tag that carries a date or a build time more than 90 days old,
+  when the same repository has newer builds, is "deploy the newer build", not "rebuild".
+
+Only then a plan entry naming the move: rebuild, change the base, remove a package, or retire it.
+Split the findings by operating system and application package, and say which move clears how many.
 
 ## 5. A dead line → `replace`
 The project is archived, unmaintained, or the distribution is out of support. A plan entry with a
