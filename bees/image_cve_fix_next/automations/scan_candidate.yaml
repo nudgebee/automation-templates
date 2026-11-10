@@ -4,7 +4,7 @@
 # comparison is the step's output. A scan can take over 30 minutes, longer than a bee run, so the
 # run returns while it is still going and a later run reads the result with workflow_execution_get.
 summary: Scan a newer tag of a running image and compare it with the running one.
-slug: image_cve_fix__scan_candidate
+slug: image_cve_fix_next__scan_candidate
 name: "Scan a candidate image"
 description: "Pulls a newer tag of an image a workload runs onto a node, scans it without running it, and returns which CVEs it fixes, leaves and adds compared with the running image."
 version: 1.0.0
