@@ -1,0 +1,4 @@
+name: Hygiene sweep with two SQL Server entries sharing one server label, on a server short of memory with a long transaction in one of the databases - log space, Agent jobs, tempdb, version store, storage, memory pressure and edition checked once under the label, not under each entry; a hygiene_memory_pressure warning whose value is the share of wait time spent waiting for memory (RESOURCE_SEMAPHORE and RESOURCE_SEMAPHORE_QUERY_COMPILE); hygiene_long_tx only under the database the transaction touched; hygiene_file_space under each entry
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: checked

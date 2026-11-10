@@ -48,6 +48,8 @@ The run message says which:
    rest of the run. It gets only its `unreachable`, `identity` or `read_only` finding and NO
    `checked` entries or metrics, so it shows as "not checked".
 3. **Hygiene sweep, per database that passed.** Follow the hygiene skill for its engine.
+   - SQL Server's server checks (log, jobs, tempdb, version store, disks, memory, edition) run
+     once per server label, on the label's first entry, with `target` = the label.
    - A check that ran goes into `checked`, whether it found something or not.
    - A check that found something also gives ONE finding. Its `detail` names the items the
      detail query returned (table and index names, sessions, settings), at most 20, never only a
@@ -110,8 +112,8 @@ End with a ```json block. `summary`, `evidence`, `verdict`, `checked` and `findi
    "links": ["https://github.com/acme/orders-api/blob/main/internal/orders/store.go#L212"]}],
  "evidence": [{"claim": "orders-db has 2 duplicate indexes", "source": "mysql_query_execute instance=orders-db: sys.schema_redundant_indexes count"}]}
 ```
-- `target` is the entry's name, except for server-wide numbers (`wait_ms`), whose target is the
-  server label. A finding's `check` is one of:
+- `target` is the entry's name, except for SQL Server's server checks (the hygiene skill's, and
+  `wait_ms`), whose target is the server label. A finding's `check` is one of:
   - a name from the engine's skill catalogue, as written there;
   - `perf_top_sql` (performance sweep);
   - `unreachable`, `identity`, `read_only`, `server_label` or `shared_server` (preflight).
