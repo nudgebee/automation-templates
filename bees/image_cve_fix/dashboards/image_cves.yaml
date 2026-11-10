@@ -1,0 +1,140 @@
+title: Image CVEs
+description: Fixable Critical and High CVEs on the images the bee looks after, day by day, what each fix cleared, and the pull requests it opened. Installed with the bee.
+definition:
+  time_from: now-30d
+  panels:
+    - id: 1
+      title: Fixable Critical
+      description: Critical CVEs with a fixed version on the running images, at the latest run.
+      type: stat
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 0, w: 3, h: 4 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: fixable_critical } } }, { _binary: { target: { _eq: all } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 2
+      title: Fixable High
+      description: High CVEs with a fixed version on the running images, at the latest run.
+      type: stat
+      datasource: nudgebee
+      grid_pos: { x: 3, y: 0, w: 3, h: 4 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: fixable_high } } }, { _binary: { target: { _eq: all } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 3
+      title: Images with a fix in review
+      description: Images whose fix pull request is open, at the latest run.
+      type: stat
+      datasource: nudgebee
+      grid_pos: { x: 6, y: 0, w: 3, h: 4 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_findings_groupings_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: count }]
+            where: { _and: [ { _binary: { result: { _eq: finding } } }, { _binary: { state: { _eq: planned } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 4
+      title: CVEs fixed this week
+      description: CVEs gone from running images whose fix the bee proved this week (new image running, pods healthy, scan clean).
+      type: stat
+      datasource: nudgebee
+      grid_pos: { x: 9, y: 0, w: 3, h: 4 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_amounts_v2
+            columns: [{ name: day, expr: date_unit, args: [week] }, { name: sum_amount }]
+            where: { _and: [ { _binary: { metric: { _eq: cves_fixed } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 5
+      title: Fixable Critical and High, day by day
+      description: The latest run's count each day. Only a fix running in the cluster lowers it; a scan or a pull request doesn't.
+      type: timeseries
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 4, w: 12, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: metric }, { name: last_value }]
+            where: { _and: [ { _binary: { target: { _eq: all } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 6
+      title: Images by severity
+      description: Images with fixable Critical or High CVEs per day, critical when any is Critical.
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 12, w: 6, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_findings_groupings_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: severity }, { name: count }]
+            where: { _and: [ { _binary: { result: { _eq: finding } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 7
+      title: CVEs fixed per week, by image
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 6, y: 12, w: 6, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_amounts_v2
+            columns: [{ name: day, expr: date_unit, args: [week] }, { name: target }, { name: sum_amount }]
+            where: { _and: [ { _binary: { metric: { _eq: cves_fixed } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 8
+      title: Images
+      description: Each image with fixable Critical or High CVEs per day, its fix and what's next. Planned means its pull request is open; the link opens it.
+      type: table
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 20, w: 12, h: 10 }
+      options:
+        columns: [{ name: day, title: Day }, { name: severity, title: Severity }, { name: target, title: Image }, { name: title, title: CVEs }, { name: state, title: State }, { name: detail, title: Fix and next step }, { name: link, title: Pull request }]
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_findings_v2
+            columns: [{ name: day }, { name: severity }, { name: target }, { name: title }, { name: state }, { name: detail }, { name: link }, { name: value }, { name: unit }]
+            where: { _and: [ { _binary: { result: { _eq: finding } } } ] }
+            order_by: [{ column: day, order: desc }, { column: value, order: desc }]
+            limit: 200
+    - id: 9
+      title: Pull requests opened per week
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 30, w: 12, h: 6 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_amounts_v2
+            columns: [{ name: day, expr: date_unit, args: [week] }, { name: target }, { name: sum_amount }]
+            where: { _and: [ { _binary: { metric: { _eq: prs_opened } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
