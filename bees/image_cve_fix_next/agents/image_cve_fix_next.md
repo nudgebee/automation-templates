@@ -1,5 +1,5 @@
 ---
-name: image_cve_fix
+name: image_cve_fix_next
 description: Brings down fixable Critical and High CVEs on the images running in the chosen namespaces, across many runs. Its findings, numbers and plan live on the Bee page.
 thinking: medium
 max_turns: 40
