@@ -2,8 +2,8 @@
 summary: Add a period's DORA numbers to the cluster's report issue.
 slug: dora_metrics__update_report
 name: "Comment on the DORA report issue"
-description: "Adds the four metrics, the deploys and alerts behind them, and the change since last period."
-version: 1.0.0
+description: "Adds the five metrics, the deploys and alerts behind them, and the change since last period."
+version: 1.0.1
 definition:
   version: "v1"
   inputs:

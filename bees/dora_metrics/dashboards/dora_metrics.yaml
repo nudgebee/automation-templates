@@ -1,0 +1,92 @@
+title: DORA metrics
+description: The DORA Metrics bee's numbers, one point per weekly report and one series per cluster. Installed with the bee.
+# Every query splits by target (the cluster): an install can cover several clusters, and their
+# rates and medians must never be added or mixed.
+definition:
+  time_from: now-90d
+  panels:
+    - id: 1
+      title: Weekly numbers by cluster
+      description: Each weekly report's numbers, latest first. Rates are percents, change lead time is a median in hours, recovery time a median in minutes.
+      type: table
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 0, w: 12, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: target }, { name: metric }, { name: last_value }]
+            order_by: [{ column: day, order: desc }]
+            limit: 200
+    - id: 2
+      title: Deploys per week, failed and rework
+      description: Each bar is one weekly report, on the day it ran.
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 8, w: 12, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_amounts_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: target }, { name: metric }, { name: sum_amount }]
+            where: { _and: [ { _binary: { metric: { _in: [deploys, failed_deploys, rework_deploys] } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 3
+      title: Deployment frequency per week (deploys per day)
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 16, w: 6, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: target }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: deployment_frequency } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 4
+      title: Change lead time per week (hours, median)
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 6, y: 16, w: 6, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: target }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: change_lead_time } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 5
+      title: Failed deployment recovery time per week (minutes, median)
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 24, w: 6, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: target }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: failed_deployment_recovery_time } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 6
+      title: Change fail rate and rework rate per week (%)
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 6, y: 24, w: 6, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: target }, { name: metric }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _in: [change_fail_rate, deployment_rework_rate] } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500

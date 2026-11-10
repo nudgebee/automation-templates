@@ -1,8 +1,8 @@
 schema: bee/v1
 name: dora_metrics                      # canonical: snake_case, fixed forever
 display_name: DORA Metrics Bee
-version: 0.1.2
-description: Reports the four DORA metrics for this cluster once a week (deployment frequency, lead time for changes, change failure rate and time to restore), with the deploys and alerts behind each number and what changed since last week.
+version: 0.2.0
+description: Reports the five DORA metrics for this cluster once a week (deployment frequency, change lead time, failed deployment recovery time, change fail rate and deployment rework rate), with the deploys and alerts behind each number and what changed since last week.
 author: { name: Nudgebee }
 
 install:
@@ -19,7 +19,7 @@ integrations:
     types: [github, gitlab]
     access: read
     required: false
-    why: Reads commit times for lead time for changes. Without it, lead time is reported as not available.
+    why: Reads commit times for change lead time. Without it, lead time is reported as not available.
 
 settings:
   tracker_project:
@@ -35,7 +35,7 @@ settings:
   failure_window_minutes:
     type: number
     title: Failure window
-    description: A deploy counts as failed when a high-priority alert fires on the same workload within this many minutes after it.
+    description: A deploy counts as failed when a high-priority alert fires on the same workload within this many minutes after it, or when it is rolled back.
     default: 60
   report_days:
     type: number
@@ -44,10 +44,59 @@ settings:
     default: 7
 
 output:                                 # summary, evidence and runs are built in
-  verdict: { enum: [full, partial, none] }      # how many of the four metrics have numbers
+  verdict: { enum: [full, partial, none] }      # how many of the five metrics have numbers
+  metrics:                              # a weekly period's numbers, once its comment is posted
+    type: array
+    items:
+      type: object
+      properties:
+        target: { type: string }        # the account name
+        metric:
+          type: string
+          enum: [deploys, failed_deploys, rework_deploys, deployment_frequency, change_lead_time, failed_deployment_recovery_time, change_fail_rate, deployment_rework_rate]
+        value: { type: number }
+      required: [target, metric, value]
+  # checked and findings are required next to metrics_field. DORA numbers are not checks that
+  # pass or fail, so both are always []: an item would show a 50% change fail rate as "OK".
+  checked:
+    type: array
+    items:
+      type: object
+      properties:
+        target: { type: string }
+        check: { type: string }
+      required: [target, check]
+  findings:
+    type: array
+    items:
+      type: object
+      properties:
+        target: { type: string }
+        check: { type: string }
+        severity: { enum: [info, warning, critical] }
+        title: { type: string }
+      required: [target, check, severity, title]
+
+# The platform keeps each weekly period's numbers (bee_metrics) for the DORA dashboard. A metric
+# that could not be read, or has nothing to measure, has no item: never 0. Counts are events, so
+# any range adds up; rates and medians are gauges, one point per week.
+findings:
+  checked_field: checked
+  findings_field: findings
+  metrics_field: metrics
+  units: [deploys, deploys_per_day, hours, minutes, percent]
+  metrics:
+    deploys: { kind: events, unit: deploys }
+    failed_deploys: { kind: events, unit: deploys }
+    rework_deploys: { kind: events, unit: deploys }
+    deployment_frequency: { kind: gauge, unit: deploys_per_day }
+    change_lead_time: { kind: gauge, unit: hours }                        # median
+    failed_deployment_recovery_time: { kind: gauge, unit: minutes }       # median
+    change_fail_rate: { kind: gauge, unit: percent }
+    deployment_rework_rate: { kind: gauge, unit: percent }
 
 budget:
   # Uncached input + output per run; input read from the prompt cache does not count.
   max_tokens_per_run: 400000
-  max_runs_per_day: 1
+  max_runs_per_day: 2                   # runs by hand count too: one must not cancel the weekly run
   timeout: 15m
