@@ -17,8 +17,7 @@ definition:
     required: true
   - id: aws_region
     type: string
-    required: false
-    default: us-east-1
+    required: true
   - id: snapshot_age_days
     type: string
     required: false
@@ -116,7 +115,7 @@ template_variables:
   display_name: AWS Region
   help_text: AWS region to scan
   placeholder: us-east-1
-  required: false
+  required: true
   type: string
   group: AWS
 - id: snapshot_age
