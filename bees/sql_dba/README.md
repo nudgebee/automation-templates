@@ -17,12 +17,17 @@ read-only login.
   - when it moved, reads the deadlocks themselves (SQL Server `system_health`; PostgreSQL and
     MySQL from their logs on RDS, Cloud SQL or the account's log store) and groups them by
     pattern;
+  - SQL Server's counter is the whole server's, so it only decides whether to look. The bee reads
+    only the deadlocks that involve each database (a session in it, or a lock on its rows), so a
+    deadlock on one database of a server isn't charged to the others. `system_health` keeps a few
+    files of events, so on a busy server a database's count is a floor;
   - the first time a pattern is seen, follows it to the code: the app's error line, traces, then
     the file in `repos`. The note says what deadlocks, where in the code, and how to fix it.
 - **The platform decides what repeats:** the bee reports numbers; rules open a finding when a
   pattern deadlocks twice in 7 days (critical at twice a day), when the counter moves twice in 7
-  days and the statements can't be read, and when a sweep finds a session blocked for 30s or more
-  twice in 7 days. Live blocking alerts are the product's alert path, not the bee's.
+  days and the statements can't be read (PostgreSQL and MySQL; on SQL Server, where
+  `system_health` runs by default, a run that can't read it is `partial` and says why), and when
+  a sweep finds a session blocked for 30s or more twice in 7 days. Live blocking alerts are the product's alert path, not the bee's.
 - **Report channel:** a sweep posts only new, worse and cleared findings. Nothing changed, no post.
 - **Database health dashboard** (`dashboards/database_health.yaml`): open and critical findings,
   objects to fix, checks not run, findings per day; deadlocks this week, per day by database and

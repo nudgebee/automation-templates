@@ -1,0 +1,4 @@
+name: Deadlocks sweep with two SQL Server databases, orders and billing, on one server whose counter moved by 2; system_health holds 2 deadlocks, both between processes in orders - deadlocks_server_total for both databases and no deadlocks_total, deadlock_events 2 for the orders pattern, a zero deadlock_events for billing, and no note or finding under billing
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked

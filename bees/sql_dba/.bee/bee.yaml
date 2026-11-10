@@ -83,7 +83,7 @@ output:                                  # summary, evidence and runs are built 
       type: object
       properties:
         target: { type: string }
-        metric: { type: string, enum: [deadlocks_total, deadlock_events, blocked_seconds, long_blocks] }
+        metric: { type: string, enum: [deadlocks_total, deadlocks_server_total, deadlock_events, blocked_seconds, long_blocks] }
         subject: { type: string }
         value: { type: number }
       required: [target, metric, value]
@@ -113,12 +113,16 @@ findings:
   notes_field: notes
   metrics:
     deadlocks_total: { kind: counter, unit: deadlocks }
+    # SQL Server's counter is the whole server's, so it only gates the sweep and feeds no rule:
+    # system_health says which database each deadlock was on (deadlock_events).
+    deadlocks_server_total: { kind: counter, unit: deadlocks }
     deadlock_events: { kind: events, unit: deadlocks }
     blocked_seconds: { kind: gauge, unit: seconds }
     long_blocks: { kind: events, unit: blocks }
   rules:
     deadlock_repeat: { kind: sum_over, metric: deadlock_events, window: 7d, warning: 2, critical_per_day: 2, title: "Deadlock repeats" }
     # The catch-all for a database whose statements can't be read; quiet where a pattern is open.
+    # PostgreSQL and MySQL only: SQL Server reports deadlocks_server_total, not deadlocks_total.
     deadlocks_repeat_any: { kind: sum_over, metric: deadlocks_total, window: 7d, warning: 2, title: "Deadlocks repeat", unless: deadlock_repeat }
     # A six-hourly snapshot sees only blocks in progress, so a baseline on it would open on any
     # momentary wait. A sweep that finds a session waiting 30s or more counts once; twice in 7 days
