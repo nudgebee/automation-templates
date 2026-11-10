@@ -1,5 +1,5 @@
-name: The scan run finished with no line for the candidate image
+name: A candidate scan in the plan comes back failed, and the bee asks once more
 trigger: fixtures/scheduled-run.json
 expect:
   verdict: unchanged
-  runs: []
+  runs: [read_scan, scan_candidate]
