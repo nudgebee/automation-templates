@@ -1,7 +1,7 @@
 schema: bee/v1
 name: image_cve_fix                     # canonical: snake_case, fixed forever
 display_name: Image CVE Fix Bee
-version: 1.2.2
+version: 1.2.3
 description: Brings down fixable Critical and High CVEs on the images running in the namespaces you choose. For each image it finds the cheapest fix that works, scans a newer version before asking to upgrade, opens the pull request, and proves the result on the running image.
 author: { name: Nudgebee }
 
