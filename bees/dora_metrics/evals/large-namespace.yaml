@@ -1,4 +1,4 @@
-name: Busy cluster, hundreds of image rollouts in the period, more than revisionHistoryLimit per workload
+name: Production namespace with dozens of workloads and a few image rollouts in the period
 trigger: fixtures/scheduled-run.json
 expect:
   verdict: partial

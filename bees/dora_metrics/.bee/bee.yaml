@@ -1,8 +1,8 @@
 schema: bee/v1
 name: dora_metrics                      # canonical: snake_case, fixed forever
 display_name: DORA Metrics Bee
-version: 0.2.3
-description: Reports the four DORA metrics for this cluster once a week (deployment frequency, lead time for changes, change failure rate and time to restore), with the deploys and alerts behind each number and what changed since last week.
+version: 0.2.0
+description: Reports the five DORA metrics for this cluster once a week (deployment frequency, change lead time, failed deployment recovery time, change fail rate and deployment rework rate), with the deploys and alerts behind each number and what changed since last week.
 author: { name: Nudgebee }
 
 install:
@@ -19,7 +19,7 @@ integrations:
     types: [github, gitlab]
     access: read
     required: false
-    why: Reads commit times for lead time for changes. Without it, lead time is reported as not available.
+    why: Reads commit times for change lead time. Without it, lead time is reported as not available.
 
 settings:
   tracker_project:
@@ -35,33 +35,36 @@ settings:
   failure_window_minutes:
     type: number
     title: Failure window
-    description: A change counts as failed when a HIGH alert starts on the same workload within this many minutes after it, before the workload's next change.
+    description: A deploy counts as failed when a high-priority alert fires on the same workload within this many minutes after it, or when it is rolled back.
     default: 60
   report_days:
     type: number
     title: Report period
     description: How many days each report covers.
     default: 7
-  failure_exclude:
-    type: string
-    title: Alerts that are not failures
-    description: Comma-separated text; a HIGH alert whose title contains any of it does not count as a production failure, for example test alerts. Empty means every HIGH alert counts.
-    default: ""
-  code_repositories:
-    type: string
-    title: Code repositories
-    description: Comma-separated repositories (owner/name) whose commits the image tags name. Lead time looks a deploy's commit up there when the workload's own repository annotation does not have it. Empty means only that annotation is used.
-    default: ""
 
 output:                                 # summary, evidence and runs are built in
-  verdict: { enum: [full, partial, none] }      # how many of the four metrics have numbers
+  verdict: { enum: [full, partial, none] }      # how many of the five metrics have numbers
+  metrics:                              # a weekly period's numbers, once its comment is posted
+    type: array
+    items:
+      type: object
+      properties:
+        target: { type: string }        # the account name
+        metric:
+          type: string
+          enum: [deploys, failed_deploys, rework_deploys, deployment_frequency, change_lead_time, failed_deployment_recovery_time, change_fail_rate, deployment_rework_rate]
+        value: { type: number }
+      required: [target, metric, value]
+  # checked and findings are required next to metrics_field. DORA numbers are not checks that
+  # pass or fail, so both are always []: an item would show a 50% change fail rate as "OK".
   checked:
     type: array
     items:
       type: object
       properties:
         target: { type: string }
-        check: { type: string, enum: [deployment_frequency, lead_time, change_failure_rate, time_to_restore] }
+        check: { type: string }
       required: [target, check]
   findings:
     type: array
@@ -69,54 +72,31 @@ output:                                 # summary, evidence and runs are built i
       type: object
       properties:
         target: { type: string }
-        check: { type: string, enum: [deployment_frequency, lead_time, change_failure_rate, time_to_restore] }
+        check: { type: string }
         severity: { enum: [info, warning, critical] }
         title: { type: string }
-        detail: { type: string }
-        value: { type: number }
-        unit: { enum: [deploys, changes, failures] }
-        link: { type: string }
       required: [target, check, severity, title]
-  metrics:
-    type: array
-    items:
-      type: object
-      properties:
-        target: { type: string }
-        metric:
-          type: string
-          enum: [deploy_frequency_per_day, lead_time_hours, change_failure_rate_pct, time_to_restore_minutes,
-                 deploys, changes, failed_changes, failures]
-        subject: { type: string }
-        value: { type: number }
-      required: [target, metric, value]
 
-# The platform keeps the four metrics of every weekly report (one point a week) and the deploy,
-# change and failure counts per namespace and workload, for the bee's dashboard. A metric the run could not work
-# out is a warning finding ("Not available: <reason>"), never a 0. Any other finding is a caveat on a
-# metric that has a number (it rests on part of the data). The rule below adds one finding per
-# workload whose changes keep failing.
+# The platform keeps each weekly period's numbers (bee_metrics) for the DORA dashboard. A metric
+# that could not be read, or has nothing to measure, has no item: never 0. Counts are events, so
+# any range adds up; rates and medians are gauges, one point per week.
 findings:
   checked_field: checked
   findings_field: findings
-  units: [deploys, changes, failures, deploys_per_day, hours, minutes, percent]
   metrics_field: metrics
+  units: [deploys, deploys_per_day, hours, minutes, percent]
   metrics:
-    deploy_frequency_per_day: { kind: gauge, unit: deploys_per_day }
-    lead_time_hours: { kind: gauge, unit: hours }
-    change_failure_rate_pct: { kind: gauge, unit: percent }
-    time_to_restore_minutes: { kind: gauge, unit: minutes }
     deploys: { kind: events, unit: deploys }
-    changes: { kind: events, unit: changes }
-    failed_changes: { kind: events, unit: changes }
-    failures: { kind: events, unit: failures }
-  rules:
-    # A workload whose changes keep failing. One weekly sweep reports the week's failed changes, so
-    # the window is 6 days: it holds the latest sweep and never last week's, which ran 7 days before.
-    failing_changes: { kind: sum_over, metric: failed_changes, window: 6d, warning: 3, title: "Changes keep failing" }
+    failed_deploys: { kind: events, unit: deploys }
+    rework_deploys: { kind: events, unit: deploys }
+    deployment_frequency: { kind: gauge, unit: deploys_per_day }
+    change_lead_time: { kind: gauge, unit: hours }                        # median
+    failed_deployment_recovery_time: { kind: gauge, unit: minutes }       # median
+    change_fail_rate: { kind: gauge, unit: percent }
+    deployment_rework_rate: { kind: gauge, unit: percent }
 
 budget:
   # Uncached input + output per run; input read from the prompt cache does not count.
   max_tokens_per_run: 400000
-  max_runs_per_day: 3                   # the weekly report plus runs by hand; a run by hand must not use up the schedule's run
+  max_runs_per_day: 2                   # runs by hand count too: one must not cancel the weekly run
   timeout: 15m
