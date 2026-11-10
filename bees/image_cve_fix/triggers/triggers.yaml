@@ -1,4 +1,4 @@
-# Once a day the bee picks up where the tracking issue left off and does the next step.
+# Once a day the bee picks up where its plan (kept by the platform) left off and does the next step.
 # A person can also start it by hand. It never waits inside a run.
 triggers:
   - type: schedule

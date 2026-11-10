@@ -2,4 +2,4 @@ name: The scan shows CVEs fixed and none new in the newer version
 trigger: fixtures/scheduled-run.json
 expect:
   verdict: unchanged
-  runs: [open_fix_pr, update_plan]
+  runs: [open_fix_pr]
