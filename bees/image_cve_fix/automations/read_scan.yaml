@@ -1,0 +1,21 @@
+# Reads a candidate scan that scan_candidate started, by its scan_id. Read tier (it only reads the
+# platform's kept result), so it runs without asking. status is running until the scan ends, then
+# done, and result holds outcome, verdict, fixed, left, new, counts, scanned_at, analysers and notes.
+summary: Read the result of a candidate image scan by its scan_id.
+slug: image_cve_fix__read_scan
+name: "Read a candidate scan"
+description: "Answers a scan's status (running or done) and, when done, its outcome, verdict, the CVEs it fixes, leaves and adds, and its notes. Makes no change."
+version: 1.0.0
+definition:
+  version: "v1"
+  inputs:
+    - { id: scan_id, type: string, required: true, description: "The scan_id scan_candidate answered" }
+  triggers:
+    - type: manual
+  tasks:
+    - id: read
+      type: security.get_image_candidate_scan
+      params:
+        scan_id: "{{ Inputs.scan_id }}"
+      timeout: "2m"
+  timeout: "3m"
