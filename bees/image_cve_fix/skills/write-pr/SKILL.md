@@ -11,7 +11,8 @@ result of this run; never round, estimate or retype from memory.
 ## Shape
 Use these sections, in this order. Leave out a section only when it has nothing to say.
 
-1. **One line on top:** `Bumps <image> from <from> to <to>, run by <namespace>/<workload>.`
+1. **One line on top:** `Bumps <image> from <from> to <to>, run by <namespace>/<workload>.` When one
+   change moves several images (a Helm chart bump), name the chart and every image it moves.
 2. **Summary table:**
    | | |
    |---|---|
@@ -20,14 +21,18 @@ Use these sections, in this order. Leave out a section only when it has nothing 
    | CVEs left | `counts.left` |
    | CVEs added | `counts.new` |
    | Version change | e.g. minor, 1.18 to 1.19 |
+
+   A change that moves several images gets one row of numbers per image, each from that image's own
+   scan, and a total. An image it moves that you didn't scan is a row saying "not scanned".
 3. **Why this upgrade:** two or three sentences. Which notable CVEs it fixes (the worst ones, by
    name and package), and why this version rather than a newer one if you scanned more than one.
 4. **What could break:** one line per check from `assess_upgrade`'s `evidence`: the check, whether
    code or you read it, the result (✅ no risk, ⚠️ check, ❌ risk, ➖ not checked) and the evidence.
    Then, in your own words, what a reviewer should look at: e.g. a deprecated option this deployment
    uses, a data migration, a changed default. If nothing, say what you read that shows it.
-5. **Release notes:** the releases between the two versions you read, each as a link, with the lines
-   that matter quoted word for word.
+5. **Release notes:** every release between the two versions, each as a link. Under each one you read
+   this run, the lines that matter quoted word for word, or "nothing that affects this deployment".
+   One you didn't read says "not read". Never one sentence about all of them.
 6. **CVEs fixed:** a table `CVE | Package | Severity | Fixed in`, worst first, from the scan's
    `fixed` list. More than 15 rows go inside `<details><summary>All N</summary> … </details>`. Link
    each CVE or GHSA id to `https://osv.dev/vulnerability/<id>`.
@@ -36,13 +41,13 @@ Use these sections, in this order. Leave out a section only when it has nothing 
    (a CI workflow, an Argo CD or Flux app). When nothing does (a version kept in a comment, a
    `helm upgrade` run by hand), say so first in this section and give the exact command to run after
    merging.
-9. **How this was checked:** both images scanned in the cluster by the same scanner, when, and the
-   scan's execution id; each of the scan's `notes`; and that after rollout you check the new image
+9. **How this was checked:** both images scanned in the cluster by the same scanner, when, and each
+   scan's whole `scan_id`; each of the scan's `notes`; and that after rollout you check the new image
    runs, the pods are healthy and the fixed CVEs are gone.
 
 ## Rules
 - The confidence level is `assess_upgrade`'s. Never raise it, and never open a pull request for Low.
 - Say what you couldn't check. "Not checked" is an answer; a guess is not.
 - A quote is the source's own words with its link. Your summary of it is not a quote.
-- No tracker or run ids beyond the scan's execution id; no account names or internal hostnames in a
+- No tracker or run ids beyond the scans' `scan_id`s; no account names or internal hostnames in a
   public repository.
