@@ -34,8 +34,8 @@ It returns `can_write` (a count of rights beyond reading), the connected databas
    - MySQL: `SELECT`, `PROCESS`, `SHOW VIEW`.
 
    On PostgreSQL 14 and older, `public` lets everyone create tables. `REVOKE CREATE ON SCHEMA public FROM PUBLIC` fixes that.
-4. **SQL Server: the server label** (only in a sweep that runs server-wide checks: the
-   performance sweep). An entry's server is the fourth part of the entry
+4. **SQL Server: the server label** (in the sweeps that run server-wide checks: hygiene and
+   performance). An entry's server is the fourth part of the entry
    (`name:mssql:database:server`), or the entry's name when there is none. Server-wide checks run
    once per label, with `target` = the label. Compare the labels and `server_identity` of the
    SQL Server entries that passed 1-3 (an entry that failed them takes no part):

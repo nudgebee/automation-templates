@@ -8,10 +8,23 @@ plan for a person. The bee sends only read queries, and before each run it check
 can do nothing more than read. That check is not a guarantee: the guarantee is giving it a
 read-only login.
 
-## v0.3 (this version)
+## v0.4 (this version)
 - **Preflight:** the database is reachable, and its login can only read. A database whose login can
   write is skipped.
 - **Daily hygiene sweep:** per-engine checks in `skills/hygiene-*`, one catalogue per engine.
+  On SQL Server, besides indexes, statistics, Query Store, long transactions (counted only in the
+  database they touch) and file space per database, it checks each server once:
+  - **log space** and **failed Agent jobs**;
+  - **tempdb** files near their cap, and a **version store** that holds half of tempdb (one long
+    snapshot transaction keeps it from being cleaned);
+  - **disks** under 15% free (critical under 5%), every volume that holds a database file, from
+    SQL Server itself, so it works without an AWS account. On RDS, it also says whether storage autoscaling will grow the volume;
+  - **memory pressure:** queries waiting for memory for 10% of the wait time, a query waiting
+    now, or SQL Server told physical memory is low;
+  - **edition facts** on Enterprise: CPUs and memory against Standard's limits for the server's
+    version, Resource Governor, and each database's Enterprise features, marked where Standard
+    allows them. These are facts for a review, not a
+    recommendation; the saving is the platform's to work out.
 - **Deadlocks sweep, every six hours** (`skills/deadlocks`):
   - reads each engine's deadlock counter and how long blocked sessions have waited. When the
     counter has not moved since the last sweep, the run stops there: a few turns;
@@ -84,8 +97,9 @@ baselines on load and connections.
   separated) to name the code; `report_channel` for the change posts; `critical_queries`
   (`name:0xHASH`, from the Top queries finding) for the queries to follow day by day.
 - **Several databases on one SQL Server:** add the same server label to each entry
-  (`orders:mssql:orders:prod-sql-1`), so waits are read once per server. Without it the bee says
-  which entries share a server.
+  (`orders:mssql:orders:prod-sql-1`, on RDS the instance identifier), so the server checks and the
+  waits run once per server. Without it the bee says which entries share a server, and each
+  entry reports the server's checks again.
 - **At install, pick one integration for each engine you use,** even when there are several.
   That choice gives the bee read access to that engine's integrations. An engine left without a
   pick has every database report `unreachable`. Pick the GitHub integration that can read `repos`.

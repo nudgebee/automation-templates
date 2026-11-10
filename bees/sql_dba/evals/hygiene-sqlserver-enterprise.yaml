@@ -1,0 +1,4 @@
+name: Hygiene sweep on an Enterprise edition SQL Server 2019 whose database uses partitioning and Resource Governor pools - one info hygiene_edition_evidence finding under the server label with no value or unit, logical CPUs and memory against Standard's limits as the query returned them, Resource Governor marked Enterprise only, Partitioning marked allowed on Standard as allowed_on_standard returned it, the databases not in the install named as not read, and no recommendation or saving
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: checked
