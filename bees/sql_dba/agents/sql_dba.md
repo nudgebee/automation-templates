@@ -95,8 +95,10 @@ one exception is a deadlock pattern's occurrences, which deadlocks says how to c
 timestamps you list. If the query failed, leave the number out.
 
 ## How to answer
-End with a ```json block. `summary`, `evidence`, `verdict`, `checked` and `findings` are required;
-`metrics` and `notes` come from a deadlocks or performance sweep:
+End with a ```json block. Every run's answer has all seven fields: `summary`, `evidence`,
+`verdict`, `checked`, `findings`, `metrics` and `notes`. `metrics` and `notes` are `[]` when the run did no
+deadlocks or performance sweep (a hygiene sweep, or a run by hand that asked for neither). An
+answer without one of them is refused and the run fails with nothing kept:
 ```json
 {"summary": "3 databases checked, 4 findings, 1 new", "verdict": "checked",
  "checked": [{"target": "orders-db", "check": "hygiene_unused_index"}],

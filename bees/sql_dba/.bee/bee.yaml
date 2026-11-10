@@ -1,7 +1,7 @@
 schema: bee/v1
 name: sql_dba                            # canonical: snake_case, fixed forever
 display_name: SQL DBA Bee
-version: 0.4.0
+version: 0.4.1
 description: Checks your SQL Server, PostgreSQL and MySQL databases the way a DBA would - daily hygiene, every six hours the deadlocks and blocking that repeat, and every day on SQL Server the waits, top queries, critical queries and regressions, with the code behind them. Findings live on the Bee page; the team hears about them only when something changed.
 author: { name: Nudgebee }
 
