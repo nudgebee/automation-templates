@@ -74,7 +74,7 @@ than the answer.
 4. **Scan results.** For each open scan in the plan, run `read_scan` with its `scan_id` and follow
    read-scan. Send these reads together. Record what came back.
 5. **Images.** Go through the plan in its order (most findings first) and follow choose-resolution for each image that is waiting on you:
-   - an image whose scan came back (step 4): it may go deep (step 7), but only one image per run does; the others wait, marked `scanned`, for the next run;
+   - an image whose scan came back (step 4), or a `scanned` image from an earlier run (read its kept `scan_id` again in step 4 when it goes deep): it may go deep (step 7), but only one image per run does; the others wait, marked `scanned`, for the next run;
    - a `pending` image that needs no scan: end it now in `dependency_pr`, `turn_off`, `own_fix`, `replace` or `none`, with its evidence. Do all of these this run. An image you build yourselves is not settled as `own_fix` until choose-resolution step 4's two checks ran on it (a newer release, a newer build); a newer release makes it an upgrade that needs a scan;
    - a `pending` image that needs a scan (an upgrade): it goes to step 6.
 
@@ -151,6 +151,8 @@ End with a ```json block. All fields are required, and `evidence` is never omitt
 - `plan`: the whole plan, changed or not: it is what your next run gets. Per image: `tag`, `critical`,
   `high`, `rules` (the revision that judged it: 3), `state` (pending, scanned, upgrade_pr, dependency_pr, own_fix, turn_off, replace, none),
   `candidate`, `confidence`, `pr`, `declined` (versions a person closed), `scan` (`scan_id`,
-  both images, time asked, tries; null when none is open), `proof` (pending, deferred,
+  both images, time asked, tries, and once read `fixed`/`left`/`new`; kept while the image is
+  `scanned`, null when no scan is open or waiting to be used). Copy every `scan_id` whole: a
+  shortened id can't be read, `proof` (pending, deferred,
   done), `evidence` (at most 200 characters), `next`. `total` is step 2's number; `asks` lists what
   needs a person. Keep it under 16 KB: shorten evidence, never drop an image or an open scan.
