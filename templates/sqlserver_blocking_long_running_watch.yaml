@@ -1,0 +1,174 @@
+slug: sqlserver_blocking_long_running_watch
+name: "SQL Server Blocking and Long-Running Watch"
+description: "Every five minutes, looks for SQL Server sessions that block others, requests that have run too long and transactions left open, with the SQL, the login and the host. Raises one Nudgebee event per episode and closes it when the server is quiet again. Read-only (the login needs VIEW SERVER STATE; without it the watch sees nothing), no AI call on any tick."
+category: "monitoring"
+icon: "database"
+status: ACTIVE
+tags:
+  use_case: database-monitoring
+  integrations:
+  - dbms
+definition:
+  version: "v1"
+  llm_description: "Watches one SQL Server for blocking chains (the head blocker, its SQL and login), long-running requests and old open transactions every five minutes, and turns each episode into a Nudgebee event, so the existing alert routing, notifications and tickets apply. Catches blocking that a CloudWatch alarm on 'Processes blocked' misses because it clears within minutes."
+  inputs:
+    - id: "db_integration_id"
+      type: "string"
+      required: true
+      description: "The SQL Server integration to watch. Its login needs only VIEW SERVER STATE."
+    - id: "db_name"
+      type: "string"
+      required: true
+      description: "What the event is about, e.g. the RDS instance identifier. Used as the event's subject."
+    - id: "account_id"
+      type: "string"
+      required: false
+    - id: "block_seconds"
+      type: "string"
+      default: "10"
+      description: "A head blocker counts once a session it blocks has waited this many seconds. Keep it under the clients' command timeout (30 s by default in .NET), or blocked clients give up before the watch sees them."
+    - id: "long_running_minutes"
+      type: "string"
+      default: "10"
+      description: "A request or an open transaction older than this many minutes counts."
+  triggers:
+    # overlap_policy Skip: a slow scan never stacks a second one behind it.
+    - type: "schedule"
+      params:
+        cron: "*/5 * * * *"
+        overlap_policy: "Skip"
+    - type: "manual"
+  tasks:
+    # One row, always. `watch` is NBW[<items>|<key of the longest item>|<server time>]: the
+    # template reads the count and the time from that marker instead of parsing the result. A
+    # head blocker blocks others (blocking_session_id > 0, not itself) and is not blocked; its
+    # wait is the longest wait among the sessions it blocks directly. Backups, restores, DBCC
+    # and WAITFOR are not "long-running". MAX_GRANT_PERCENT keeps the scan from queuing for
+    # memory behind the workload on a small server.
+    - id: "scan"
+      type: "dbms.query"
+      timeout: "60s"
+      params:
+        integration_id: "{{ Inputs.db_integration_id }}"
+        dbms_type: "mssql"
+        account_id: "{{ Inputs.account_id }}"
+        command: >-
+          WITH chain AS (SELECT session_id, blocking_session_id, wait_time FROM sys.dm_exec_requests WHERE blocking_session_id > 0 AND blocking_session_id <> session_id),
+          items AS (
+          SELECT 'blocking' AS kind, s.session_id, s.login_name, s.host_name, s.program_name, DB_NAME(s.database_id) AS db,
+          (SELECT MAX(c.wait_time) FROM chain c WHERE c.blocking_session_id = s.session_id) / 1000 AS seconds,
+          (SELECT COUNT(*) FROM chain c WHERE c.blocking_session_id = s.session_id) AS blocked,
+          CONVERT(varchar(30), s.login_time, 126) AS since,
+          LEFT(REPLACE(REPLACE(REPLACE(COALESCE(t.text, ''), CHAR(13), ' '), CHAR(10), ' '), CHAR(9), ' '), 300) AS statement
+          FROM sys.dm_exec_sessions s
+          OUTER APPLY (SELECT TOP 1 hr.sql_handle FROM sys.dm_exec_requests hr WHERE hr.session_id = s.session_id) hr
+          OUTER APPLY (SELECT TOP 1 cn.most_recent_sql_handle FROM sys.dm_exec_connections cn WHERE cn.session_id = s.session_id) cn
+          OUTER APPLY sys.dm_exec_sql_text(COALESCE(hr.sql_handle, cn.most_recent_sql_handle)) t
+          WHERE s.session_id IN (SELECT blocking_session_id FROM chain)
+          AND s.session_id NOT IN (SELECT session_id FROM chain)
+          AND (SELECT MAX(c.wait_time) FROM chain c WHERE c.blocking_session_id = s.session_id) >= {{ Inputs.block_seconds | int }} * 1000
+          UNION ALL
+          SELECT 'long_request', r.session_id, s.login_name, s.host_name, s.program_name, DB_NAME(r.database_id),
+          DATEDIFF(second, r.start_time, GETDATE()), 0, CONVERT(varchar(30), r.start_time, 126),
+          LEFT(REPLACE(REPLACE(REPLACE(COALESCE(t.text, ''), CHAR(13), ' '), CHAR(10), ' '), CHAR(9), ' '), 300)
+          FROM sys.dm_exec_requests r JOIN sys.dm_exec_sessions s ON s.session_id = r.session_id
+          OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) t
+          WHERE s.is_user_process = 1 AND r.session_id <> @@SPID
+          AND r.command NOT LIKE 'BACKUP%' AND r.command NOT LIKE 'RESTORE%' AND r.command NOT LIKE 'DBCC%' AND r.command <> 'WAITFOR'
+          AND r.start_time < DATEADD(minute, -{{ Inputs.long_running_minutes | int }}, GETDATE())
+          UNION ALL
+          SELECT 'open_transaction', st.session_id, s.login_name, s.host_name, s.program_name, DB_NAME(s.database_id),
+          DATEDIFF(second, at.transaction_begin_time, GETDATE()), 0, CONVERT(varchar(30), at.transaction_begin_time, 126),
+          LEFT(REPLACE(REPLACE(REPLACE(COALESCE(t.text, ''), CHAR(13), ' '), CHAR(10), ' '), CHAR(9), ' '), 300)
+          FROM sys.dm_tran_session_transactions st
+          JOIN sys.dm_tran_active_transactions at ON at.transaction_id = st.transaction_id
+          JOIN sys.dm_exec_sessions s ON s.session_id = st.session_id
+          OUTER APPLY (SELECT TOP 1 cn.most_recent_sql_handle FROM sys.dm_exec_connections cn WHERE cn.session_id = st.session_id) cn
+          OUTER APPLY sys.dm_exec_sql_text(cn.most_recent_sql_handle) t
+          WHERE s.is_user_process = 1 AND st.session_id <> @@SPID
+          AND at.transaction_begin_time < DATEADD(minute, -{{ Inputs.long_running_minutes | int }}, GETDATE())
+          AND NOT EXISTS (SELECT 1 FROM sys.dm_exec_requests r WHERE r.session_id = st.session_id AND r.start_time < DATEADD(minute, -{{ Inputs.long_running_minutes | int }}, GETDATE()))),
+          ranked AS (SELECT *, ROW_NUMBER() OVER (ORDER BY seconds DESC, session_id) AS rn FROM items)
+          SELECT CONCAT('NBW[', COUNT(*), '|', MAX(CASE WHEN rn = 1 THEN CONCAT(kind, '-', session_id, '-', REPLACE(REPLACE(since, ':', ''), '.', '')) ELSE '' END), '|',
+          FORMAT(SYSUTCDATETIME(), 'yyyyMMddHHmmss'), ']') AS watch,
+          STRING_AGG(CONCAT(kind, ': session ', session_id, ' ', login_name, '@', host_name, ' (', program_name, '), db ', db, ', ', seconds, 's',
+          CASE WHEN blocked > 0 THEN CONCAT(', blocking ', blocked) ELSE '' END, ' - ', statement), ' || ') WITHIN GROUP (ORDER BY rn) AS details
+          FROM ranked OPTION (MAX_GRANT_PERCENT = 1)
+
+    # Something to report. The episode id is made once, from the first tick's server time, and
+    # kept in State until a quiet tick closes the episode: the same finding_id keeps one open
+    # event (it keeps the first tick's evidence), and a later episode gets a new id, so it is
+    # never a FIRING on an event that is already closed.
+    - id: "raise"
+      type: "events.store"
+      depends_on: ["scan"]
+      if: "{{ 'NBW[' in Tasks.scan.output.data and 'NBW[0|' not in Tasks.scan.output.data }}"
+      params:
+        event:
+          account_id: "{{ Inputs.account_id }}"
+          status: "FIRING"
+          finding_id: "{{ State['sqlserver_watch_episode_' ~ Inputs.db_integration_id] or ('sqlserver-watch-' ~ Inputs.db_integration_id ~ '-' ~ Tasks.scan.output.data.split('NBW[')[1].split(']')[0].split('|')[2]) }}"
+          fingerprint: "sqlserver-watch-{{ Inputs.db_integration_id }}"
+          title: "SQL Server blocking or long-running work on {{ Inputs.db_name }}"
+          description: "{{ Tasks.scan.output.data }}"
+          aggregation_key: "SqlServerBlockingOrLongRunning"
+          finding_type: "SqlServerBlockingOrLongRunning"
+          subject_name: "{{ Inputs.db_name }}"
+          subject_type: "database"
+          priority: "HIGH"
+          category: "Performance"
+      set_state:
+        "sqlserver_watch_episode_{{ Inputs.db_integration_id }}": "{{ State['sqlserver_watch_episode_' ~ Inputs.db_integration_id] or ('sqlserver-watch-' ~ Inputs.db_integration_id ~ '-' ~ Tasks.scan.output.data.split('NBW[')[1].split(']')[0].split('|')[2]) }}"
+
+    # Quiet again after an episode: close every open event of this server, once, and forget the
+    # episode id.
+    - id: "resolve"
+      type: "events.store"
+      depends_on: ["scan"]
+      if: "{{ 'NBW[0|' in Tasks.scan.output.data and (State['sqlserver_watch_episode_' ~ Inputs.db_integration_id] or '') != '' }}"
+      params:
+        event:
+          account_id: "{{ Inputs.account_id }}"
+          status: "RESOLVED"
+          fingerprint: "sqlserver-watch-{{ Inputs.db_integration_id }}"
+          title: "SQL Server blocking or long-running work on {{ Inputs.db_name }}"
+          description: "No blocking, long-running request or old open transaction any more."
+          aggregation_key: "SqlServerBlockingOrLongRunning"
+          finding_type: "SqlServerBlockingOrLongRunning"
+          subject_name: "{{ Inputs.db_name }}"
+          subject_type: "database"
+          priority: "HIGH"
+          category: "Performance"
+      set_state:
+        "sqlserver_watch_episode_{{ Inputs.db_integration_id }}": ""
+template_variables:
+- id: db_integration
+  input_ref: db_integration_id
+  display_name: SQL Server Integration
+  help_text: The SQL Server to watch (a read-only login with VIEW SERVER STATE is enough)
+  required: true
+  type: integration
+  group: Database
+- id: db_label
+  input_ref: db_name
+  display_name: Server Name
+  help_text: How events name this server, e.g. the RDS instance identifier
+  required: true
+  type: string
+  group: Database
+- id: block_threshold
+  input_ref: block_seconds
+  display_name: Blocking Threshold (seconds)
+  help_text: A head blocker is reported once a session it blocks has waited this long
+  placeholder: '10'
+  required: false
+  type: string
+  group: Thresholds
+- id: long_running_threshold
+  input_ref: long_running_minutes
+  display_name: Long-Running Threshold (minutes)
+  help_text: Requests and open transactions older than this are reported
+  placeholder: '10'
+  required: false
+  type: string
+  group: Thresholds

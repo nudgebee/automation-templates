@@ -1,8 +1,8 @@
 schema: bee/v1
 name: sql_dba                            # canonical: snake_case, fixed forever
 display_name: SQL DBA Bee
-version: 0.2.0
-description: Checks your SQL Server, PostgreSQL and MySQL databases the way a DBA would - daily hygiene, and every six hours the deadlocks and blocking that repeat, with the code behind them. Findings live on the Bee page; the team hears about them only when something changed.
+version: 0.3.0
+description: Checks your SQL Server, PostgreSQL and MySQL databases the way a DBA would - daily hygiene, every six hours the deadlocks and blocking that repeat, and every day on SQL Server the waits, top queries, critical queries and regressions, with the code behind them. Findings live on the Bee page; the team hears about them only when something changed.
 author: { name: Nudgebee }
 
 install:
@@ -28,18 +28,22 @@ integrations:
     types: [github]
     access: read
     required: false
-    why: Reads the repositories in `repos` to name the code behind a repeating deadlock.
+    why: Reads the repositories in `repos` to name the code behind a repeating deadlock or a regressed query.
 
 settings:
   databases:
     type: string
     title: Databases
-    description: "Comma-separated entries name:engine:database, one per database the install looks after. name is the SQL integration's name in Nudgebee (on RDS and Cloud SQL, name it after the instance); engine is mssql, postgres or mysql; database is the database the integration connects to. Example: orders-db:postgres:orders,billing:mysql:billing"
+    description: "Comma-separated entries name:engine:database, one per database the install looks after. name is the SQL integration's name in Nudgebee (on RDS and Cloud SQL, name it after the instance); engine is mssql, postgres or mysql; database is the database the integration connects to. SQL Server entries may add a fourth part, the server they run on (on RDS, the instance identifier), so that checks of the whole server run once per server: orders:mssql:orders:prod-sql-1,billing:mssql:billing:prod-sql-1. Without it, each entry counts as its own server. Example: orders-db:postgres:orders,billing:mysql:billing"
     required: true
   repos:
     type: string
     title: Code repositories
-    description: "Comma-separated GitHub repositories as owner/name whose code uses these databases, e.g. acme/orders-api,acme/billing. The bee reads them to name the code behind a repeating deadlock. Leave empty to stop at the service and endpoint."
+    description: "Comma-separated GitHub repositories as owner/name whose code uses these databases, e.g. acme/orders-api,acme/billing. The bee reads them to name the code behind a repeating deadlock or a regressed query. Leave empty to stop at the service and endpoint."
+  critical_queries:
+    type: string
+    title: Critical queries (SQL Server)
+    description: "Comma-separated entries name:0xQUERYHASH, the queries whose time, CPU and reads the bee tracks every day on SQL Server, and flags when one is well above its own weeks before. name is the database's entry name; the hash is Query Store's query_hash, as the daily Top queries finding lists it. Example: orders:0x8B3F1C2D4E5A6B7C"
   report_channel:
     type: channel
     title: Report channel
@@ -83,7 +87,7 @@ output:                                  # summary, evidence and runs are built 
       type: object
       properties:
         target: { type: string }
-        metric: { type: string, enum: [deadlocks_total, deadlocks_server_total, deadlock_events, blocked_seconds, long_blocks] }
+        metric: { type: string, enum: [deadlocks_total, deadlocks_server_total, deadlock_events, blocked_seconds, long_blocks, wait_ms, query_avg_ms, query_avg_cpu_ms, query_avg_reads, query_executions, query_regressed] }
         subject: { type: string }
         value: { type: number }
       required: [target, metric, value]
@@ -108,7 +112,7 @@ output:                                  # summary, evidence and runs are built 
 findings:
   checked_field: checked
   findings_field: findings
-  units: [objects, settings, sessions, databases, jobs, deadlocks, blocks, seconds]
+  units: [objects, settings, sessions, databases, jobs, deadlocks, blocks, seconds, milliseconds, reads, executions, queries]
   metrics_field: metrics
   notes_field: notes
   metrics:
@@ -119,6 +123,14 @@ findings:
     deadlock_events: { kind: events, unit: deadlocks }
     blocked_seconds: { kind: gauge, unit: seconds }
     long_blocks: { kind: events, unit: blocks }
+    # Performance sweep (SQL Server). Waits are the server's (target = server label), cumulative
+    # since it started, for the dashboard; the others are per database, one subject per query hash.
+    wait_ms: { kind: counter, unit: milliseconds }
+    query_avg_ms: { kind: gauge, unit: milliseconds }
+    query_avg_cpu_ms: { kind: gauge, unit: milliseconds }
+    query_avg_reads: { kind: gauge, unit: reads }
+    query_executions: { kind: events, unit: executions }
+    query_regressed: { kind: events, unit: queries }
   rules:
     deadlock_repeat: { kind: sum_over, metric: deadlock_events, window: 7d, warning: 2, critical_per_day: 2, title: "Deadlock repeats" }
     # The catch-all for a database whose statements can't be read; quiet where a pattern is open.
@@ -128,10 +140,16 @@ findings:
     # momentary wait. A sweep that finds a session waiting 30s or more counts once; twice in 7 days
     # is a finding. Live blocking is the product alert path's job.
     blocking_repeat: { kind: sum_over, metric: long_blocks, window: 7d, warning: 2, title: "Blocking repeats" }
+    # No baseline on wait_ms yet: a counter's amount is "since the last read", so a missed sweep
+    # doubles a day and would open false findings. Waits are on the dashboard until the platform
+    # scales a counter's amount by the time between reads. Baselines only ever warn.
+    critical_query_slower: { kind: baseline, metric: query_avg_ms, window: 28d, min_days: 7, change: 0.5, title: "Critical query slower than usual" }
+    # The bee reports 1 for a query whose last 24h average is twice its week before (Query Store).
+    query_regression: { kind: sum_over, metric: query_regressed, window: 7d, warning: 1, title: "Query regressed" }
 
 budget:
   # Uncached input + output per run; input read from the prompt cache does not count.
-  # One hygiene sweep and four deadlock sweeps a day, plus room for runs by hand.
+  # One hygiene sweep, four deadlock sweeps and one performance sweep a day, plus room for runs by hand.
   max_tokens_per_run: 400000
-  max_runs_per_day: 8
+  max_runs_per_day: 10
   timeout: 20m

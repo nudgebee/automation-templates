@@ -99,7 +99,7 @@ definition:
       message: |-
         📊 *{{ Inputs.report_name }}*
 
-        {{ Tasks.generate_report.output.response }}
+        {{ Tasks.generate_report.output.data }}
   - id: send_email
     type: notifications.email
     depends_on:
@@ -108,7 +108,7 @@ definition:
     params:
       recipients: '{{ Inputs.email_recipients }}'
       subject: '{{ Inputs.report_name }}'
-      body: '{{ Tasks.generate_report.output.response }}'
+      body: '{{ Tasks.generate_report.output.data }}'
 template_variables:
 - id: report_name
   input_ref: report_name

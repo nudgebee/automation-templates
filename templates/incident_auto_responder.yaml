@@ -60,7 +60,7 @@ definition:
         {{ Inputs.alert_details }}
 
         ## AI Investigation
-        {{ Tasks.investigate.output.response }}
+        {{ Tasks.investigate.output.data }}
       project_key: '{{ Inputs.project_key }}'
       severity: '{{ Inputs.alert_severity }}'
       ticket_type: Incident
@@ -75,7 +75,7 @@ definition:
         🚨 *Incident Created*: {{ Inputs.alert_title }}
         *Severity:* {{ Inputs.alert_severity }}
         *Ticket:* {{ Tasks.create_ticket.output.ticket_id }}
-        *AI Summary:* {{ Tasks.investigate.output.response }}
+        *AI Summary:* {{ Tasks.investigate.output.data }}
   - id: wait_for_ack
     type: core.wait
     depends_on:

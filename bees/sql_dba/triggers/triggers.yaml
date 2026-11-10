@@ -15,3 +15,12 @@ triggers:
       evidence: "Deadlocks sweep: preflight, the deadlock counter gate and the blocking snapshot on every database; deadlock patterns only where the counter moved."
     dedupe: "deadlocks"
     window: 5h
+  # Every day, after the hygiene sweep: SQL Server waits, top queries, critical queries and
+  # regressions from Query Store. Named so its history follows it across reinstalls.
+  - name: performance
+    type: schedule
+    params:
+      cron: "0 3 * * *"
+      evidence: "Performance sweep: preflight, then on every SQL Server database the waits, the top queries, the critical queries and the regressions from Query Store."
+    dedupe: "performance"
+    window: 20h

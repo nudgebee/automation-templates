@@ -64,14 +64,14 @@ definition:
     type: notifications.im
     depends_on:
     - analyze_quotas
-    if: '{{ ''No concerns'' not in Tasks.analyze_quotas.output.response }}'
+    if: '{{ ''No concerns'' not in Tasks.analyze_quotas.output.data }}'
     params:
       provider: slack
       channel: '{{ Inputs.notification_channel }}'
       message: |-
         📊 *K8s Quota Usage Alert*
 
-        {{ Tasks.analyze_quotas.output.response }}
+        {{ Tasks.analyze_quotas.output.data }}
 template_variables:
 - id: namespaces
   input_ref: namespaces

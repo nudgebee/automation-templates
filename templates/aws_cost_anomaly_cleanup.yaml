@@ -76,7 +76,7 @@ definition:
       message: |-
         💰 *AWS Cost Cleanup Report*
 
-        {{ Tasks.build_report.output.response }}
+        {{ Tasks.build_report.output.data }}
 
         Approve to delete unattached volumes and old snapshots?
       approval_type: instant_message
@@ -102,7 +102,7 @@ definition:
     params:
       recipients: '{{ Inputs.email_recipients }}'
       subject: Weekly AWS Cost Anomaly Report — {{ Inputs.aws_region }}
-      body: '{{ Tasks.build_report.output.response }}'
+      body: '{{ Tasks.build_report.output.data }}'
 template_variables:
 - id: slack_channel
   input_ref: approval_channel

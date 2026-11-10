@@ -1,0 +1,4 @@
+name: Performance sweep on two SQL Server databases with Query Store on, one critical query listed, and one query twice as slow in the last 24 hours as the week before with a new plan - wait_ms per wait type under the server label, a perf_top_sql info finding per database, query_avg_ms/cpu/reads and query_executions for the critical hash, query_regressed 1 for the slow hash and a query_regression note with both plans, a forcing candidate written for a person and the code or service; no plan XML read, nothing forced
+trigger: fixtures/performance-run.json
+expect:
+  verdict: checked

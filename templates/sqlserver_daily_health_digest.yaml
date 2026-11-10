@@ -1,0 +1,237 @@
+slug: sqlserver_daily_health_digest
+name: "SQL Server Daily Health Digest"
+description: "Every morning, posts a short health digest for one SQL Server to a Slack channel: transaction log and tempdb use, SQL Agent jobs that failed, the top waits, open transactions, file and RDS storage headroom. Read-only."
+category: "monitoring"
+icon: "database"
+status: ACTIVE
+tags:
+  use_case: database-monitoring
+  integrations:
+  - dbms
+  - llm
+  - slack
+definition:
+  version: "v1"
+  llm_description: "Daily digest for one SQL Server (RDS or self-managed): log and tempdb use, failed SQL Agent jobs, top waits, long open transactions, file growth limits and RDS free storage, summarised for the team and posted every day whether or not anything is wrong."
+  inputs:
+    - id: "db_integration_id"
+      type: "string"
+      required: true
+      description: "The SQL Server integration. A read-only login with VIEW SERVER STATE; SQLAgentReaderRole in msdb for the jobs section."
+    - id: "db_name"
+      type: "string"
+      required: true
+      description: "How the digest names this server, e.g. the RDS instance identifier."
+    - id: "account_id"
+      type: "string"
+      required: false
+      description: "The Nudgebee account whose agent reaches the SQL Server."
+    - id: "aws_account_id"
+      type: "string"
+      required: false
+      description: "The Nudgebee AWS account that owns the RDS instance, for the CloudWatch and RDS calls. Often not the same account as the one whose agent reaches the database."
+    - id: "rds_instance_id"
+      type: "string"
+      required: false
+      description: "RDS DB instance identifier, for free storage from CloudWatch. Leave empty when the server isn't on RDS."
+    - id: "region"
+      type: "string"
+      required: false
+      default: "us-east-1"
+    - id: "notification_channel"
+      type: "string"
+      required: true
+  triggers:
+    - type: "schedule"
+      params:
+        cron: "0 7 * * *"
+        overlap_policy: "Skip"
+    - type: "manual"
+  tasks:
+    - id: "log_and_tempdb"
+      type: "dbms.query"
+      failure_policy:
+        action: continue
+      params:
+        integration_id: "{{ Inputs.db_integration_id }}"
+        dbms_type: "mssql"
+        account_id: "{{ Inputs.account_id }}"
+        command: >-
+          SELECT 'log_used_percent' AS item, instance_name AS db, CAST(cntr_value AS varchar(20)) AS value
+          FROM sys.dm_os_performance_counters
+          WHERE counter_name = 'Percent Log Used' AND instance_name NOT IN ('_Total', 'mssqlsystemresource') AND cntr_value >= 50
+          UNION ALL
+          SELECT 'tempdb_mb', 'tempdb', CONCAT('free ', SUM(unallocated_extent_page_count) / 128, ', version store ', SUM(version_store_reserved_page_count) / 128,
+          ', internal ', SUM(internal_object_reserved_page_count) / 128, ', user ', SUM(user_object_reserved_page_count) / 128)
+          FROM tempdb.sys.dm_db_file_space_usage
+    - id: "failed_jobs"
+      type: "dbms.query"
+      failure_policy:
+        action: continue
+      params:
+        integration_id: "{{ Inputs.db_integration_id }}"
+        dbms_type: "mssql"
+        account_id: "{{ Inputs.account_id }}"
+        command: >-
+          SELECT TOP 20 j.name AS job, h.run_date, h.run_time, LEFT(h.message, 300) AS message
+          FROM msdb.dbo.sysjobhistory h JOIN msdb.dbo.sysjobs_view j ON j.job_id = h.job_id
+          WHERE h.step_id = 0 AND h.run_status = 0
+          AND h.run_date >= CONVERT(int, CONVERT(char(8), DATEADD(day, -1, GETDATE()), 112))
+          ORDER BY h.run_date DESC, h.run_time DESC
+    - id: "top_waits"
+      type: "dbms.query"
+      failure_policy:
+        action: continue
+      params:
+        integration_id: "{{ Inputs.db_integration_id }}"
+        dbms_type: "mssql"
+        account_id: "{{ Inputs.account_id }}"
+        command: >-
+          SELECT TOP 10 w.wait_type, w.wait_time_ms / 1000 AS wait_s, w.waiting_tasks_count,
+          CAST(ROUND(100.0 * w.wait_time_ms / SUM(w.wait_time_ms) OVER (), 1) AS float) AS pct,
+          (SELECT DATEDIFF(hour, sqlserver_start_time, GETDATE()) FROM sys.dm_os_sys_info) AS hours_since_start
+          FROM sys.dm_os_wait_stats w
+          WHERE w.wait_time_ms > 0 AND w.wait_type NOT LIKE 'SLEEP[_]%' AND w.wait_type NOT LIKE 'BROKER[_]%' AND w.wait_type NOT LIKE 'XE[_]%'
+          AND w.wait_type NOT LIKE 'QDS[_]%' AND w.wait_type NOT LIKE 'FT[_]IFTS%' AND w.wait_type NOT LIKE 'PARALLEL[_]REDO%' AND w.wait_type NOT LIKE 'DBMIRROR%'
+          AND w.wait_type NOT LIKE 'SQLTRACE[_]%' AND w.wait_type NOT LIKE 'WAIT[_]XTP%' AND w.wait_type NOT LIKE 'PWAIT[_]%'
+          AND w.wait_type NOT IN ('CHECKPOINT_QUEUE','CHKPT','CLR_AUTO_EVENT','CLR_MANUAL_EVENT','CLR_SEMAPHORE','CXCONSUMER','DIRTY_PAGE_POLL',
+          'DISPATCHER_QUEUE_SEMAPHORE','EXECSYNC','FSAGENT','HADR_CLUSAPI_CALL','HADR_FILESTREAM_IOMGR_IOCOMPLETION','HADR_LOGCAPTURE_WAIT',
+          'HADR_NOTIFICATION_DEQUEUE','HADR_TIMER_TASK','HADR_WORK_QUEUE','KSOURCE_WAKEUP','LAZYWRITER_SLEEP','LOGMGR_QUEUE','MEMORY_ALLOCATION_EXT',
+          'ONDEMAND_TASK_QUEUE','PREEMPTIVE_OS_FLUSHFILEBUFFERS','PREEMPTIVE_XE_GETTARGETSTATE','PVS_PREALLOCATE','REDO_THREAD_PENDING_WORK',
+          'REQUEST_FOR_DEADLOCK_SEARCH','RESOURCE_QUEUE','SERVER_IDLE_CHECK','SNI_HTTP_ACCEPT','SOS_WORK_DISPATCHER','SP_SERVER_DIAGNOSTICS_SLEEP',
+          'VDI_CLIENT_OTHER','WAIT_FOR_RESULTS','WAITFOR','WAITFOR_TASKSHUTDOWN')
+          ORDER BY w.wait_time_ms DESC
+    - id: "open_transactions"
+      type: "dbms.query"
+      failure_policy:
+        action: continue
+      params:
+        integration_id: "{{ Inputs.db_integration_id }}"
+        dbms_type: "mssql"
+        account_id: "{{ Inputs.account_id }}"
+        command: >-
+          SELECT TOP 10 st.session_id, s.login_name, s.host_name, DB_NAME(s.database_id) AS db,
+          DATEDIFF(minute, at.transaction_begin_time, GETDATE()) AS open_minutes
+          FROM sys.dm_tran_session_transactions st
+          JOIN sys.dm_tran_active_transactions at ON at.transaction_id = st.transaction_id
+          JOIN sys.dm_exec_sessions s ON s.session_id = st.session_id
+          WHERE s.is_user_process = 1 AND at.transaction_begin_time < DATEADD(minute, -10, GETDATE())
+          ORDER BY at.transaction_begin_time
+    - id: "file_headroom"
+      type: "dbms.query"
+      failure_policy:
+        action: continue
+      params:
+        integration_id: "{{ Inputs.db_integration_id }}"
+        dbms_type: "mssql"
+        account_id: "{{ Inputs.account_id }}"
+        command: >-
+          SELECT DB_NAME(database_id) AS db, name AS file_name, type_desc, size / 128 AS size_mb, max_size / 128 AS max_mb,
+          CAST(ROUND(100.0 * size / max_size, 1) AS float) AS percent_of_max, NULL AS note
+          FROM sys.master_files
+          WHERE max_size > 0 AND size >= 0.8 * max_size
+          UNION ALL
+          SELECT NULL, NULL, NULL, NULL, NULL, NULL,
+          CASE WHEN HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW ANY DEFINITION') = 1 THEN 'login sees every database file'
+          ELSE 'login sees only its own database files (VIEW ANY DEFINITION needed for the rest)' END
+    - id: "rds_storage"
+      type: "cloud.aws.cli"
+      if: "{{ (Inputs.rds_instance_id or '') != '' }}"
+      failure_policy:
+        action: continue
+      params:
+        account_id: "{{ Inputs.aws_account_id or Inputs.account_id }}"
+        command: "aws cloudwatch get-metric-statistics --namespace AWS/RDS --metric-name FreeStorageSpace --dimensions Name=DBInstanceIdentifier,Value={{ Inputs.rds_instance_id }} --start-time {{ now() | time_add('-24h') | date_format }} --end-time {{ now() | date_format }} --period 86400 --statistics Minimum --region {{ Inputs.region }}"
+    - id: "rds_instance"
+      type: "cloud.aws.cli"
+      if: "{{ (Inputs.rds_instance_id or '') != '' }}"
+      failure_policy:
+        action: continue
+      params:
+        account_id: "{{ Inputs.aws_account_id or Inputs.account_id }}"
+        command: "aws rds describe-db-instances --db-instance-identifier {{ Inputs.rds_instance_id }} --region {{ Inputs.region }} --query 'DBInstances[0].{Class:DBInstanceClass,Engine:Engine,Version:EngineVersion,AllocatedGB:AllocatedStorage,MaxAllocatedGB:MaxAllocatedStorage,MultiAZ:MultiAZ}'"
+    # The RDS tasks are skipped off RDS, and a skipped dependency skips a task without an
+    # `if` of its own (runbook-server executor). This `if` keeps the digest going.
+    - id: "summarise"
+      type: "llm.summary"
+      depends_on: ["log_and_tempdb", "failed_jobs", "top_waits", "open_transactions", "file_headroom", "rds_storage", "rds_instance"]
+      if: "{{ true }}"
+      params:
+        message: |-
+          Write a short daily health digest for the SQL Server "{{ Inputs.db_name }}", for the engineers who own it.
+          Lead with anything that needs a person today; then one line per section. Use only the data below: no
+          estimates, no advice beyond what the data shows. A section with no rows is healthy; a section whose
+          query failed says "not checked" and why. Free storage below 15% of allocated, a log over 80% used, a
+          failed job or a transaction open for over an hour needs a person.
+
+          ### Transaction log (databases at 50% or more) and tempdb (MB)
+          {{ Tasks.log_and_tempdb.output | tojson if Tasks.log_and_tempdb.output else ('not checked: ' ~ (Tasks.log_and_tempdb.error or 'no output')) }}
+
+          ### SQL Agent jobs that failed since yesterday
+          {{ Tasks.failed_jobs.output | tojson if Tasks.failed_jobs.output else ('not checked: ' ~ (Tasks.failed_jobs.error or 'no output')) }}
+
+          ### Top waits since the server started (hours_since_start says how long that is)
+          {{ Tasks.top_waits.output | tojson if Tasks.top_waits.output else ('not checked: ' ~ (Tasks.top_waits.error or 'no output')) }}
+
+          ### Transactions open for more than 10 minutes
+          {{ Tasks.open_transactions.output | tojson if Tasks.open_transactions.output else ('not checked: ' ~ (Tasks.open_transactions.error or 'no output')) }}
+
+          ### Files at 80% or more of their capped size
+          {{ Tasks.file_headroom.output | tojson if Tasks.file_headroom.output else ('not checked: ' ~ (Tasks.file_headroom.error or 'no output')) }}
+
+          ### RDS: lowest free storage in 24h (bytes) and the instance
+          {{ Tasks.rds_storage.output | tojson if Tasks.rds_storage.output else ('not checked: ' ~ (Tasks.rds_storage.error or 'not on RDS')) }}
+          {{ Tasks.rds_instance.output | tojson if Tasks.rds_instance.output else '' }}
+    - id: "post"
+      type: "notifications.im"
+      depends_on: ["summarise"]
+      params:
+        provider: slack
+        channel: "{{ Inputs.notification_channel }}"
+        message: |-
+          *SQL Server daily health: {{ Inputs.db_name }}*
+
+          {{ Tasks.summarise.output.data }}
+  timeout: "10m"
+template_variables:
+- id: db_integration
+  input_ref: db_integration_id
+  display_name: SQL Server Integration
+  help_text: The SQL Server to report on
+  required: true
+  type: integration
+  group: Database
+- id: db_label
+  input_ref: db_name
+  display_name: Server Name
+  help_text: How the digest names this server
+  required: true
+  type: string
+  group: Database
+- id: rds_id
+  input_ref: rds_instance_id
+  display_name: RDS Instance Identifier
+  help_text: For free storage from CloudWatch; leave empty when not on RDS
+  required: false
+  type: string
+  group: AWS
+- id: aws_account
+  input_ref: aws_account_id
+  display_name: AWS Account
+  help_text: The Nudgebee AWS account that owns the RDS instance, when it isn't the database's own account
+  required: false
+  type: string
+  group: AWS
+- id: aws_region
+  input_ref: region
+  display_name: AWS Region
+  required: false
+  type: string
+  group: AWS
+- id: slack_channel
+  input_ref: notification_channel
+  display_name: Slack Channel
+  help_text: Where the digest is posted every morning
+  required: true
+  type: string
+  group: Notifications

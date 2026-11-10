@@ -81,7 +81,7 @@ definition:
       message: |-
         🔍 *CrashLoopBackOff Diagnosed*
         *Workload:* {{ Inputs.namespace }}/{{ Inputs.workload_name }}
-        *Diagnosis:* {{ Tasks.diagnose.output.response }}
+        *Diagnosis:* {{ Tasks.diagnose.output.data }}
   - id: approve_remediation
     type: core.approval
     depends_on:
@@ -89,7 +89,7 @@ definition:
     params:
       message: |-
         *CrashLoopBackOff remediation for {{ Inputs.namespace }}/{{ Inputs.workload_name }}*
-        Diagnosis: {{ Tasks.diagnose.output.response }}
+        Diagnosis: {{ Tasks.diagnose.output.data }}
         Approve to scale up memory (OOMKilled) or restart the {{ Inputs.workload_kind }}.
       approval_type: instant_message
       im_provider: slack
@@ -100,7 +100,7 @@ definition:
     - approve_remediation
     if: '{{ Tasks.approve_remediation.output.status == ''approve'' }}'
     params:
-      expression: '{{ ''OOMKilled'' if ''OOMKill'' in Tasks.diagnose.output.response else ''Unknown'' }}'
+      expression: '{{ ''OOMKilled'' if ''OOMKill'' in Tasks.diagnose.output.data else ''Unknown'' }}'
       cases:
       - value: OOMKilled
         next: rightsize_up
