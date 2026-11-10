@@ -57,7 +57,7 @@ definition:
       message: |-
         📨 *{{ Inputs.source_name }}*
 
-        {{ Tasks.format_message.output.response }}
+        {{ Tasks.format_message.output.data }}
   - id: send_email
     type: notifications.email
     depends_on:
@@ -66,7 +66,7 @@ definition:
     params:
       recipients: '{{ Inputs.email_recipients }}'
       subject: 'Webhook Alert: {{ Inputs.source_name }}'
-      body: '{{ Tasks.format_message.output.response }}'
+      body: '{{ Tasks.format_message.output.data }}'
   - id: create_ticket
     type: tickets.create
     depends_on:
@@ -75,7 +75,7 @@ definition:
     params:
       integration_id: '{{ Inputs.ticket_integration_id }}'
       title: '[{{ Inputs.source_name }}] Webhook alert'
-      description: '{{ Tasks.format_message.output.response }}'
+      description: '{{ Tasks.format_message.output.data }}'
       project_key: '{{ Inputs.project_key }}'
 template_variables:
 - id: slack_channel

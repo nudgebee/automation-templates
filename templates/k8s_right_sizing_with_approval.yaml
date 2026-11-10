@@ -68,7 +68,7 @@ definition:
         📊 *Right-Sizing Recommendation*
         *Workload:* {{ Inputs.namespace }}/{{ Inputs.workload_name }}
 
-        {{ Tasks.summarize.output.response }}
+        {{ Tasks.summarize.output.data }}
 
         Approve to apply these changes?
       approval_type: instant_message

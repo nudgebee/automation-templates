@@ -1,0 +1,4 @@
+name: Deadlocks sweep where one PostgreSQL database's counter moved by 3 and its log holds 3 deadlocks of one insert/update pattern never noted before - deadlock_events 3 for that subject with the 3 timestamps in evidence, and one deadlock_repeat note with both statements, the locks, the code location or service, and a fix; no findings written by the bee
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked

@@ -1,9 +1,26 @@
-# Run A, every day: preflight, hygiene on every database, the ledger, and on the report day the
-# weekly report. Run B (deadlocks, blocking, regressions) and cost come in later versions.
+# Two sweeps, each with its own history of findings. The hygiene sweep keeps the name it had in
+# v0.1 (none, so "schedule-1"): naming it now would start its history over on every install.
 triggers:
   - type: schedule
     params:
       cron: "0 1 * * *"
-      evidence: "Run A: daily hygiene sweep; weekly report on the report day."
+      evidence: "Hygiene sweep: preflight and the daily hygiene checks on every database."
     dedupe: "daily-a"
+    window: 20h
+  # Every six hours, off the hygiene hour. Most runs stop at the counter gate: a few turns.
+  - name: deadlocks
+    type: schedule
+    params:
+      cron: "30 */6 * * *"
+      evidence: "Deadlocks sweep: preflight, the deadlock counter gate and the blocking snapshot on every database; deadlock patterns only where the counter moved."
+    dedupe: "deadlocks"
+    window: 5h
+  # Every day, after the hygiene sweep: SQL Server waits, top queries, critical queries and
+  # regressions from Query Store. Named so its history follows it across reinstalls.
+  - name: performance
+    type: schedule
+    params:
+      cron: "0 3 * * *"
+      evidence: "Performance sweep: preflight, then on every SQL Server database the waits, the top queries, the critical queries and the regressions from Query Store."
+    dedupe: "performance"
     window: 20h

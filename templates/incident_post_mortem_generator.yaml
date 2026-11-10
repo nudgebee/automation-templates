@@ -106,7 +106,7 @@ definition:
     params:
       recipients: '{{ Inputs.email_recipients }}'
       subject: 'Post-Mortem: {{ Tasks.get_ticket.output.title }} ({{ Inputs.ticket_id }})'
-      body: '{{ Tasks.generate_postmortem.output.response }}'
+      body: '{{ Tasks.generate_postmortem.output.data }}'
   - id: comment_on_ticket
     type: tickets.add_comment
     depends_on:
@@ -118,7 +118,7 @@ definition:
       comment: |-
         📋 Auto-generated post-mortem has been emailed to stakeholders.
 
-        {{ Tasks.generate_postmortem.output.response }}
+        {{ Tasks.generate_postmortem.output.data }}
 template_variables:
 - id: ticket_integration
   input_ref: ticket_integration_id
