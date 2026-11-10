@@ -71,11 +71,15 @@ Fix: find what holds the log (`log_reuse_wait_desc` in `sys.databases`): an open
 replication, or a missing log backup.
 
 ## hygiene_long_tx
-- Count: `SELECT COUNT(*) AS n FROM sys.dm_tran_active_transactions t JOIN sys.dm_tran_session_transactions s ON s.transaction_id = t.transaction_id WHERE t.transaction_begin_time < DATEADD(minute, -10, SYSDATETIME())`
-- Detail: the same, adding `s.session_id, t.transaction_begin_time` and the session's
-  `login_name` and `program_name` from `sys.dm_exec_sessions`, `TOP 20`.
+Transactions open over 10 minutes in this database. A transaction counts under the database its
+session is in, and under each database it touched; not under the server's other databases.
+- Count: `SELECT COUNT(*) AS n FROM sys.dm_tran_active_transactions t JOIN sys.dm_tran_session_transactions s ON s.transaction_id = t.transaction_id JOIN sys.dm_exec_sessions es ON es.session_id = s.session_id WHERE t.transaction_begin_time < DATEADD(minute, -10, SYSDATETIME()) AND (es.database_id = DB_ID() OR EXISTS (SELECT 1 FROM sys.dm_tran_database_transactions dt WHERE dt.transaction_id = t.transaction_id AND dt.database_id = DB_ID()))`
+- Detail: the same, selecting `TOP 20 s.session_id, t.transaction_begin_time, es.login_name, es.host_name, es.program_name`, ordered by `t.transaction_begin_time`.
 
 Fix: have the owning client commit or end it. Old transactions hold locks and log.
+
+This is one look a day. The `sqlserver_blocking_long_running_watch` template looks every five
+minutes, for long requests too, and raises an event while it lasts.
 
 ## hygiene_agent_jobs
 `SELECT COUNT(DISTINCT h.job_id) AS n FROM msdb.dbo.sysjobhistory h WHERE h.step_id = 0 AND h.run_status = 0 AND h.run_date >= CONVERT(int, CONVERT(char(8), DATEADD(day, -1, GETDATE()), 112))` (jobs, not runs)
