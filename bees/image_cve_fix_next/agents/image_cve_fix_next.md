@@ -35,6 +35,15 @@ Each run does three kinds of work, in this order:
 - **Scans:** up to three images that need a scan get one, started together; later runs read them.
 - **One deep image:** at most one image goes on to its assessment and pull request.
 
+Work in this order, so scans run while you do the rest: steps 1-4; then **start the scans you already
+know you need** (step 6, for images the plan has waiting on a scan); then step 5 (judge the images);
+then start the scans step 5 found it needs (step 6 again, three scans in all per run); then **read every
+scan you started this run** (end of step 6); then 7, 8 and 9.
+
+Your decision rules are **revision 2**. Every image in the plan carries `rules`, the revision that
+judged it. An image judged by an older revision (or with none) is judged again this run from step 5,
+as if `pending`, keeping its open scan, pull request and declined versions.
+
 Everything else waits in the plan; the next run picks up where this one stopped. The plan is kept only
 when the run ends with its answer, so a run that is short of time skips the deep image (step 7) rather
 than the answer.
@@ -69,13 +78,15 @@ than the answer.
    - a `pending` image that needs no scan: end it now in `dependency_pr`, `turn_off`, `own_fix`, `replace` or `none`, with its evidence. Do all of these this run;
    - a `pending` image that needs a scan (an upgrade): it goes to step 6.
 
-   An image already in a state is checked again only if its version or findings changed.
+   An image already in a state is checked again only if its version or findings changed, or its
+   `rules` is older than revision 2.
 6. **Ask for scans.** Pick up to three images that need a scan, in the plan's order, leaving out any with an open scan. Start all of them in the same step, as parallel `scan_candidate` calls, never one after another. For each: `namespace`, `workload`, the candidate as `image` and the running image, exactly as in the workload's spec, as `baseline_image`. An image with an open scan isn't asked again, nor an image and version scanned in the last 24 hours (read that `scan_id` instead). Its answer:
    - a `scan_id`: record it, both images and the time asked; the scan runs in the background;
    - waiting for approval: record the images and the time asked. The next run asks again only after 24 hours.
 
-   **Before you answer, read every scan you asked this run once more** with `read_scan`: most finish
-   in a few minutes. One that is done counts as came back this run (step 5), and if no image has gone
+   **After step 5, read every scan you asked this run** with `read_scan`: most finish in one to a few
+   minutes, and step 5 gives the first ones that time. Read the ones still running once more, last,
+   just before the plan and the answer. One that is done counts as came back this run (step 5), and if no image has gone
    deep yet, it may go deep now (steps 7) when there is time left for the answer.
 7. **Fix.** At most one image per run, and only with time left for the answer. Run `open_fix_pr` once per repository and change:
    - `plan_key` = `<account name>-<image name>-<target version>`, lowercase;
@@ -138,7 +149,7 @@ End with a ```json block. All fields are required, and `evidence` is never omitt
   image and as `target: all`; `cves_fixed` per image whose fix step 8 proved this run (how many of its
   CVEs went); `prs_opened` per image this run opened a pull request for (`created` only).
 - `plan`: the whole plan, changed or not: it is what your next run gets. Per image: `tag`, `critical`,
-  `high`, `state` (pending, scanned, upgrade_pr, dependency_pr, own_fix, turn_off, replace, none),
+  `high`, `rules` (the revision that judged it: 2), `state` (pending, scanned, upgrade_pr, dependency_pr, own_fix, turn_off, replace, none),
   `candidate`, `confidence`, `pr`, `declined` (versions a person closed), `scan` (`scan_id`,
   both images, time asked, tries; null when none is open), `proof` (pending, deferred,
   done), `evidence` (at most 200 characters), `next`. `total` is step 2's number; `asks` lists what
