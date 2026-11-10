@@ -1,0 +1,147 @@
+slug: cost_anomaly_ticket
+name: "Ticket Cloud Spend Anomalies"
+description: "Opens one ticket per cloud spend anomaly with the change that caused it (or what was checked when no cause was found) and its owner, comments the day's numbers while it stays open, and comments again when spend is back to normal."
+category: "cloud-cost"
+icon: "savings"
+status: ACTIVE
+tags:
+  labels:
+    - "ticketing"
+    - "read-only"
+  event_sources:
+    - "aws"
+    - "azure"
+    - "gcp"
+  alert_names:
+    - "CostAnomaly"
+definition:
+  version: "v1"
+  llm_description: "Files and keeps current one ticket per cloud spend anomaly: the cause found by an investigation, the owner, daily updates and the resolution. Use when someone wants spend spikes tracked as tickets."
+  inputs:
+    - id: "integration_id"
+      type: "string"
+      description: "Ticket integration ID"
+      required: true
+    - id: "project_key"
+      type: "string"
+      description: "Project key (e.g. FINOPS for Jira, owner/repo for GitHub)"
+      required: true
+    - id: "assignee"
+      type: "string"
+      description: "Who the ticket is assigned to, as the tracker knows them (a GitHub login, a Jira account id). Empty leaves it unassigned; the anomaly's owner in Nudgebee is written in the ticket either way."
+      default: ""
+    - id: "ticket_type"
+      type: "string"
+      description: "Ticket type (Task, Bug, Incident)"
+      default: "Task"
+    # Engine-injected on event-triggered runs.
+    - id: "event"
+      type: "object"
+      description: "Triggering spend anomaly event. Supplied by the engine."
+  # One spend anomaly is one event for its whole life, so every run below files
+  # against the same event id: the first create opens the ticket, and each later
+  # create of the same event is posted on it as a comment instead.
+  triggers:
+    - type: "event"
+      params:
+        event_type: "CostAnomaly"
+        "on": "event.created"
+    # Each day the anomaly is still open.
+    - type: "event"
+      params:
+        event_type: "CostAnomaly"
+        "on": "event.updated"
+    # Spend has been back to baseline for the configured number of days.
+    - type: "event"
+      params:
+        event_type: "CostAnomaly"
+        "on": "event.resolved"
+  tasks:
+    - id: "investigate"
+      type: "llm.investigate"
+      if: "{{ (event.lifecycle_phase | default('event.created')) == 'event.created' }}"
+      timeout: "15m"
+      # A failed investigation still files the ticket, without a cause.
+      failure_policy:
+        action: "continue"
+      params:
+        message: |-
+          A cloud spend anomaly was detected. Find the change that caused it.
+
+          Anomaly: {{ event.title }}
+          Details: {{ event.description }}
+          Cloud account: {{ event.cluster }} ({{ event.cloud_account_id }})
+          Service: {{ event.subject_name }}
+          Nudgebee event: {{ event.id }}. Its evidence lists the top contributors to the change and the last 30 days of spend.
+
+          1. From the evidence, take the top contributors and the day the rise started.
+          2. For each top contributor, look for what changed around that day: resources created, resized or scaled, and the CloudTrail write events behind them (who, when, which call).
+          3. If nothing changed, say whether the rise is usage: requests, data transfer, storage.
+
+          Keep it short. End with exactly one of these lines:
+          Cause: <the change, who made it and when, and the CloudTrail event or other source>
+          No cause found; checked: <what you checked>
+    - id: "open_ticket"
+      type: "tickets.create"
+      depends_on:
+        - "investigate"
+      params:
+        integration_id: "{{ Inputs.integration_id }}"
+        project_key: "{{ Inputs.project_key }}"
+        account_id: "{{ event.cloud_account_id }}"
+        ticket_type: "{{ Inputs.ticket_type }}"
+        severity: "High"
+        title: "{{ event.title }}"
+        description: |-
+          {{ event.description }}
+
+          **Owner in Nudgebee:** {{ (event.labels or {}).anomaly_owner | default('none set', true) }}
+          **Cloud account:** {{ event.cluster }}
+
+          ### Cause
+          {{ Tasks.investigate.output.data | default('The investigation did not finish; see the Nudgebee event.', true) }}
+        additional_fields:
+          assignee: "{{ Inputs.assignee }}"
+    # Daily update and resolution: the same create, posted on the open ticket
+    # as a comment with the event's current title and description.
+    - id: "update_ticket"
+      type: "tickets.create"
+      if: "{{ (event.lifecycle_phase | default('event.created')) != 'event.created' }}"
+      params:
+        integration_id: "{{ Inputs.integration_id }}"
+        project_key: "{{ Inputs.project_key }}"
+        account_id: "{{ event.cloud_account_id }}"
+        ticket_type: "{{ Inputs.ticket_type }}"
+        severity: "High"
+        title: "{{ event.title }}"
+        description: "{{ event.description }}"
+        additional_fields:
+          assignee: "{{ Inputs.assignee }}"
+  output:
+    ticket_id: "{{ Tasks.open_ticket.output.ticket_id | default(Tasks.update_ticket.output.ticket_id, true) }}"
+    ticket_url: "{{ Tasks.open_ticket.output.url | default(Tasks.update_ticket.output.url, true) }}"
+  timeout: "20m"
+template_variables:
+  - id: "integration_id"
+    input_ref: "integration_id"
+    display_name: "Ticket Integration"
+    required: true
+    type: "string"
+  - id: "project_key"
+    input_ref: "project_key"
+    display_name: "Project Key"
+    required: true
+    type: "string"
+    placeholder: "FINOPS"
+  - id: "assignee"
+    input_ref: "assignee"
+    display_name: "Assignee"
+    type: "string"
+  - id: "ticket_type"
+    input_ref: "ticket_type"
+    display_name: "Ticket Type"
+    type: "string"
+    options:
+      - "Task"
+      - "Bug"
+      - "Incident"
