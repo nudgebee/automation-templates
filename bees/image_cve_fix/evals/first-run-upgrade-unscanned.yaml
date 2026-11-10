@@ -2,4 +2,4 @@ name: First run, an upstream image has a newer version that was never scanned
 trigger: fixtures/manual-run.json
 expect:
   verdict: none
-  runs: [open_plan, scan_candidate]
+  runs: [scan_candidate]
