@@ -88,16 +88,16 @@ definition:
       message: |-
         🛡️ *Weekly Infrastructure Compliance Report*
 
-        {{ Tasks.generate_report.output.response }}
+        {{ Tasks.generate_report.output.data }}
   - id: create_violation_ticket
     type: tickets.create
     depends_on:
     - generate_report
-    if: '{{ Inputs.ticket_integration_id and ''CRITICAL'' in Tasks.generate_report.output.response }}'
+    if: '{{ Inputs.ticket_integration_id and ''CRITICAL'' in Tasks.generate_report.output.data }}'
     params:
       integration_id: '{{ Inputs.ticket_integration_id }}'
       title: '[Compliance] Critical infrastructure violations detected'
-      description: '{{ Tasks.generate_report.output.response }}'
+      description: '{{ Tasks.generate_report.output.data }}'
       project_key: '{{ Inputs.project_key }}'
       severity: High
 template_variables:

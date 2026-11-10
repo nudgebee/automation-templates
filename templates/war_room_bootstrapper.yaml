@@ -95,7 +95,7 @@ definition:
 
         ---
         *AI Investigation:*
-        {{ Tasks.investigate.output.response }}
+        {{ Tasks.investigate.output.data }}
 
         ---
         *Recent Logs:*
@@ -111,7 +111,7 @@ definition:
       project_key: '{{ Inputs.project_key }}'
       comment: |-
         AI Investigation:
-        {{ Tasks.investigate.output.response }}
+        {{ Tasks.investigate.output.data }}
 template_variables:
 - id: responder_channel
   input_ref: responder_channel

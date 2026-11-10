@@ -92,7 +92,7 @@ definition:
       message: |-
         🗄️ *Database Health Report*
 
-        {{ Tasks.analyze_health.output.response }}
+        {{ Tasks.analyze_health.output.data }}
 template_variables:
 - id: db_integration
   input_ref: db_integration_id

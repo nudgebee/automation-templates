@@ -59,14 +59,14 @@ definition:
     type: notifications.im
     depends_on:
     - detect_anomalies
-    if: '{{ ''No anomalies detected'' not in Tasks.detect_anomalies.output.response }}'
+    if: '{{ ''No anomalies detected'' not in Tasks.detect_anomalies.output.data }}'
     params:
       provider: slack
       channel: '{{ Inputs.notification_channel }}'
       message: |-
         🔍 *Log Anomaly Report*
 
-        {{ Tasks.detect_anomalies.output.response }}
+        {{ Tasks.detect_anomalies.output.data }}
 template_variables:
 - id: log_query
   input_ref: log_query

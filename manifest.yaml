@@ -7,7 +7,7 @@
   sha256: 9b3acfbd342198cd58321c09fd48462d19558da1e52804c5967e6d37a1f223ce
 - slug: aws_cost_anomaly_cleanup
   path: templates/aws_cost_anomaly_cleanup.yaml
-  sha256: 5c3e523062abf96226e7cd2228d2987d71943ec7c014c16b6719e2ce623966bb
+  sha256: 4600796ac601b9d1de37e863ae779286b25cf2a301cd95201ede6103e36a4374
 - slug: cleanup_evicted_and_failed_pods
   path: templates/cleanup_evicted_and_failed_pods.yaml
   sha256: d9952e67573780a7db443bd9db5ba593fe6dc8e7c9968cf674a35d5c7fe743d5
@@ -19,7 +19,7 @@
   sha256: fa3366bdb77b48f436d1ef2edafde1058231bfa36ca42ceaf7ac48c98e175629
 - slug: database_health_slow_query_audit
   path: templates/database_health_slow_query_audit.yaml
-  sha256: 5e004b3510f1ef3c42230c005cc55462c62b1a42a9276e53bfe64405a08a1098
+  sha256: 4871f2a45fd2bcb52a88a047c5ecf6a207f9ab27f2b0146e6f2179896b9ed365
 - slug: declare_incident_on_high_triage
   path: templates/declare_incident_on_high_triage.yaml
   sha256: 0e6c1d719ae035d9bb21866aa7546e285725bb4f282ecf1f055b8a12437a5963
@@ -49,13 +49,13 @@
   sha256: 4668241102b0a8557e92fb5b658f6ba7de1a4788af2357b11ca35a062b8c541e
 - slug: incident_auto_responder
   path: templates/incident_auto_responder.yaml
-  sha256: 1885e71c293cb300f32144e098fc527947d0ec949fe8c022ad5357ca24f5b3c2
+  sha256: 99904bcd2af12a7c05400d30a4b405b29f13125a6b971c57d1e10045c003e5d9
 - slug: incident_post_mortem_generator
   path: templates/incident_post_mortem_generator.yaml
-  sha256: 8d8fbf7218b7122b06e5323bfe2f7c73393a9f1dcf7f824cccc07914beaea070
+  sha256: 1a18d4ab23b9f07431a0a52e429ff818ad87dc6966d0dedb143b65c7572b7eaa
 - slug: infrastructure_compliance_audit
   path: templates/infrastructure_compliance_audit.yaml
-  sha256: 82a7f52ae2455546a1806be2647087080ccdbe38be20b513cd09cfa1780bdf32
+  sha256: 39e678ca7c5f43dc0c584089ba32136999d55909ccaa520748c396e55ce328c0
 - slug: ingest_pagerduty_incidents
   path: templates/ingest_pagerduty_incidents.yaml
   sha256: 9ff5e2fd81e62dd6b3f84b418c136f49d9aac04535a1f776433d6a0276b8e705
@@ -64,22 +64,22 @@
   sha256: 4600e13bec5b1a17604f91ce90a169db0eb1c8bd8ddb4839ee602e7173011372
 - slug: k8s_crashloopbackoff_remediation
   path: templates/k8s_crashloopbackoff_remediation.yaml
-  sha256: d60f56b47f3bb50de2ab727c9a51d5a18ae4ccfebe29cad1a652711fb5632d53
+  sha256: 8c4abc1f4f5b7616be4dfb6be08c204973b5e8afaa792b64ff90f579fab2a8d3
 - slug: k8s_namespace_quota_monitor
   path: templates/k8s_namespace_quota_monitor.yaml
-  sha256: 9b90543b4b3a8babb6003f31b11ec9ed8ab43ea5f2615ca62454e26afa47a2c7
+  sha256: 9186218f7d3303d73dbabcf2c365aa74e68923ddcfda9f7bdfee5238b9de2145
 - slug: k8s_node_drain_workflow
   path: templates/k8s_node_drain_workflow.yaml
   sha256: 497c7f4b3a4f62ec802e9f5b4c4b91da183ccf621631c93cd157c67b4f3d951b
 - slug: k8s_right_sizing_with_approval
   path: templates/k8s_right_sizing_with_approval.yaml
-  sha256: 1c5e8cedf774ade3f591a7b446896d821345666fa87ea5f9946592feb29061cd
+  sha256: 08f434e4c2fe5fc6fba73ffedcfacbebef08f5187fb854d94a205b64b4ab5ba4
 - slug: kubernetes_namespace_health_check
   path: templates/kubernetes_namespace_health_check.yaml
   sha256: 21828f0548d4fc8d48b3273c30019d00ca4988e28a24c51f1fb7ea963c62c725
 - slug: log_anomaly_detector
   path: templates/log_anomaly_detector.yaml
-  sha256: 7c7e2eb8638c6a978f1ea2efb466212b47e314ad35f049c2c7139b5990adca47
+  sha256: eb78242edc64a0beb2ee14e2f6e32d4981811ddae4e319a94a649a5502c5ea1c
 - slug: multi_endpoint_health_check
   path: templates/multi_endpoint_health_check.yaml
   sha256: e79ef4931514250d0321483c4976d4a7c9a57073b37cde3c91eba13bd37295f8
@@ -136,10 +136,16 @@
   sha256: 7d868bb42b9aaea14d3a8f9c463da09ff44e5c2f14da9f30d6e722c6ce0c2d8b
 - slug: scheduled_report_generator
   path: templates/scheduled_report_generator.yaml
-  sha256: 9a5a02494a5c4b44ec5701e3b8ddde8480491091266bc983ad481b20cb4e24c9
+  sha256: dbacdeb999d2b7bebbe43bd443bc40e04253696a8b0ba084fa1f3296996f69a1
 - slug: secret_rotation_reminder
   path: templates/secret_rotation_reminder.yaml
-  sha256: 7401dfb4f67fcc139c34d1ba8f48a53f69b0453a9607e8c48665809de8254f1c
+  sha256: 264ade74e8452e4214bc36af56e9dbcd92cf68596926f284d25b6aeda7297e57
+- slug: sqlserver_blocking_long_running_watch
+  path: templates/sqlserver_blocking_long_running_watch.yaml
+  sha256: 74b925e9d7b9d2ed22d3118bee305e3be83c8e08ba919483eebe724c069dd329
+- slug: sqlserver_daily_health_digest
+  path: templates/sqlserver_daily_health_digest.yaml
+  sha256: d1b67d222495c946466e640145b005ec9d8bbda2f119c309dc806cf7512dc0b2
 - slug: ssl_certificate_monitor
   path: templates/ssl_certificate_monitor.yaml
   sha256: f2bd429eba192214050ea34b53c34993b98a1ab85fdbdd6416c84fed2892aef7
@@ -148,7 +154,7 @@
   sha256: ea175d860b7965c722eda5fddb74435a1135d7767bf9f1289c3a5a15e134416e
 - slug: war_room_bootstrapper
   path: templates/war_room_bootstrapper.yaml
-  sha256: 4de745df2003ea212d98698806211da430dd0c9bd88f37e8889be6198bd06046
+  sha256: d33b952904032bbf558fe762f28f0b5ac6983e3ac95b01ba834f899e6d527102
 - slug: webhook_relay_to_multi_channel
   path: templates/webhook_relay_to_multi_channel.yaml
-  sha256: 3085828f1a0ea0d3f9cce91ab10b558c0b4ecdac362aab4e056cbdaef2a36cb0
+  sha256: 465b7b517e3e402731ef6607cecac0f6b5d973955d8d87634483224a2de95212
