@@ -125,7 +125,7 @@ definition:
             limit: 200
     - id: 9
       title: Deadlocks this week
-      description: Deadlocks on every database since Monday (UTC), from each engine's own deadlock counter.
+      description: PostgreSQL and MySQL deadlocks since Monday (UTC), from each engine's own deadlock counter. SQL Server's counter is the whole server's, so it isn't counted here; its deadlocks are read per database and show by pattern in Deadlock patterns per day and as findings.
       type: stat
       datasource: nudgebee
       grid_pos: { x: 0, y: 26, w: 3, h: 4 }
@@ -140,7 +140,7 @@ definition:
             limit: 500
     - id: 10
       title: Deadlocks per day, by database
-      description: From each engine's deadlock counter, checked every six hours. A day with no bar had none.
+      description: PostgreSQL and MySQL, from each engine's deadlock counter, checked every six hours. A day with no bar had none. SQL Server isn't counted here (its counter is the whole server's); its deadlocks show by pattern in Deadlock patterns per day and as findings per database.
       type: bar
       datasource: nudgebee
       grid_pos: { x: 3, y: 26, w: 9, h: 8 }
@@ -181,5 +181,50 @@ definition:
             table: bee_metric_levels_v2
             columns: [{ name: day, expr: date_unit, args: [day] }, { name: target }, { name: last_value }]
             where: { _and: [ { _binary: { metric: { _eq: blocked_seconds } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 13
+      title: Wait time per day, by wait type (SQL Server)
+      description: What the install's SQL Servers waited on each day, from sys.dm_os_wait_stats read once a day (benign waits left out; wait types with at least 1% of a server's wait time). Servers are added together; a day after a missed sweep covers two days.
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 50, w: 12, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_amounts_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: subject }, { name: sum_amount }]
+            where: { _and: [ { _binary: { metric: { _eq: wait_ms } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 14
+      title: Critical queries, average ms (SQL Server)
+      description: The average time of each query in the critical_queries setting over the last 24 hours, from Query Store, one point a day per query hash (a hash listed for two databases shows as one line). A finding opens when a day is well above the query's own 4 weeks before.
+      type: timeseries
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 58, w: 12, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: subject }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: query_avg_ms } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 15
+      title: Regressed queries per day, by database (SQL Server)
+      description: Queries whose last 24 hours averaged at least twice their week before, from Query Store. Each one opens a Query regressed finding with its plans, what changed and the code.
+      type: bar
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 66, w: 12, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_amounts_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: target }, { name: sum_amount }]
+            where: { _and: [ { _binary: { metric: { _eq: query_regressed } } }, { _binary: { subject: { _neq: "" } } } ] }
             order_by: [{ column: day, order: desc }]
             limit: 500

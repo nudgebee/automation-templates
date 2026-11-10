@@ -1,0 +1,4 @@
+name: Performance sweep where one SQL Server database has Query Store OFF and another has it READ_ONLY and full with no interval in the last day - waits still reported for their servers, no perf_top_sql, critical-query or regression numbers (not even a zero) for those two databases, the reasons and the fix in evidence; a PostgreSQL entry in the same install is left out and named in evidence
+trigger: fixtures/performance-run.json
+expect:
+  verdict: partial
