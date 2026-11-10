@@ -17,6 +17,7 @@ manifest.yaml                  # generated index [{slug, path, sha256}] — runb
 schema/template.schema.json    # JSON Schema; CI validates every template
 scripts/gen_manifest.py        # regenerate manifest.yaml (run before committing template changes)
 scripts/validate.py            # local equivalent of the CI validation (schema + workflow semantics)
+scripts/postgres_query_regression_watch/  # source + tests of the script that template embeds; build.py regenerates it
 bees/<name>/                   # one Worker Bee pack per folder (see "Worker Bees" below)
 .bee-catalogue/catalogue.yaml  # the bees this repo offers, each pinned to a version and checksum
 ```
