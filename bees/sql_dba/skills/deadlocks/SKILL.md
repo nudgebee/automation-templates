@@ -9,24 +9,29 @@ You report numbers; the platform counts, compares and opens findings (rules `dea
 and never decide that something repeats.
 
 The run message has a `<bee_metrics>` block. Per database it gives:
-- the last deadlocks sweep's `deadlocks_total` as read, and that sweep's time: **since**;
+- the last deadlocks sweep's `deadlocks_total` (SQL Server: `deadlocks_server_total`) as read, and
+  that sweep's time: **since**;
 - the subjects that already have a note.
 
 **until** is this sweep's time when `<bee_metrics>` gives it, else the `read_at` of the gate query.
 Windows are `since <= t < until`, in UTC.
 
 ## 1. Gate, every database
-One query (below, per engine). Report two metrics as read, whatever happens next:
-- `{target, metric: deadlocks_total, value: <deadlocks_total>}`;
+One query (below, per engine). Report these metrics as read, whatever happens next:
+- `{target, metric: deadlocks_total, value: <deadlocks_total>}`. SQL Server reports
+  `deadlocks_server_total` instead (see its section), and only when the counter didn't move or
+  step 3 read its window (a read cut at the page limit still counts as read: holding the counter
+  back would make the next sweep count the same deadlocks again);
 - `{target, metric: blocked_seconds, value: <blocked_seconds>}`;
 - `{target, metric: long_blocks, value: <long_blocks>}` (1 when a session has waited 30s or more, else 0).
 
-Then compare `deadlocks_total` with the value `<bee_metrics>` gives, by equality only:
+Then compare the counter with the value `<bee_metrics>` gives, by equality only:
 - **Equal:** report `{target, metric: deadlock_events, subject: "", value: 0}` and stop deadlocks
   for this database. No logs, no code. Open findings stay open: the platform keeps them.
 - **Different** (higher, or lower after a restart): read the patterns (step 3) from since to until.
 - **No value given** (the first deadlocks sweep of this database): read the patterns of the last
-  7 days.
+  7 days. On SQL Server, a `deadlocks_total` given for the database (from a version before
+  `deadlocks_server_total`) is the same counter: compare with it, and its time is **since**.
 - **`deadlocks_total` came back NULL** (the engine does not count; MySQL with performance_schema
   off): report no `deadlocks_total`, read the patterns as for "different", and say why in `evidence`.
 
@@ -36,7 +41,13 @@ Then compare `deadlocks_total` with the value `<bee_metrics>` gives, by equality
 Pass `database` = the entry's database. The deadlock counter is per server (since its last
 restart); the blocking numbers are this database's.
 
-`SELECT (SELECT cntr_value FROM sys.dm_os_performance_counters WHERE counter_name = 'Number of Deadlocks/sec' AND instance_name = '_Total') AS deadlocks_total, (SELECT COUNT(*) FROM sys.dm_exec_requests WHERE blocking_session_id <> 0 AND database_id = DB_ID()) AS blocked_sessions, (SELECT COALESCE(SUM(CAST(wait_time AS bigint)), 0) / 1000.0 FROM sys.dm_exec_requests WHERE blocking_session_id <> 0 AND database_id = DB_ID()) AS blocked_seconds, CASE WHEN EXISTS (SELECT 1 FROM sys.dm_exec_requests WHERE blocking_session_id <> 0 AND database_id = DB_ID() AND wait_time >= 30000) THEN 1 ELSE 0 END AS long_blocks, SYSUTCDATETIME() AS read_at`
+Report the counter as `deadlocks_server_total`, never `deadlocks_total`. It moves for a deadlock on
+any database of the server, and `deadlocks_total` feeds `deadlocks_repeat_any`, a rule per
+database: two databases on one server would both be charged with one deadlock. Here the counter
+only decides whether to read the patterns; step 3 reads this database's deadlocks only, so
+`deadlock_events` says which database had them.
+
+`SELECT (SELECT cntr_value FROM sys.dm_os_performance_counters WHERE counter_name = 'Number of Deadlocks/sec' AND instance_name = '_Total') AS deadlocks_server_total, (SELECT COUNT(*) FROM sys.dm_exec_requests WHERE blocking_session_id <> 0 AND database_id = DB_ID()) AS blocked_sessions, (SELECT COALESCE(SUM(CAST(wait_time AS bigint)), 0) / 1000.0 FROM sys.dm_exec_requests WHERE blocking_session_id <> 0 AND database_id = DB_ID()) AS blocked_seconds, CASE WHEN EXISTS (SELECT 1 FROM sys.dm_exec_requests WHERE blocking_session_id <> 0 AND database_id = DB_ID() AND wait_time >= 30000) THEN 1 ELSE 0 END AS long_blocks, SYSUTCDATETIME() AS read_at`
 
 Despite its name, that counter is cumulative. Never count `system_health` events instead: that
 buffer rolls over, so its count falls.
@@ -88,24 +99,30 @@ in the window. In `evidence`, list each subject's timestamps; the value is how m
 Reading stopped at a page limit: report what you read, say so, and the verdict is `partial`.
 
 ### SQL Server: `system_health`
-Pass `database` = the entry's database. First, how many deadlocks the window holds (SQL Server
-2017 and later):
+Pass `database` = the entry's database. `system_health` holds the whole server's deadlocks, so
+every query below keeps only the deadlocks that involve this database: a process whose session
+was in it (`@currentdb`), or a locked resource in it (`@dbid`, which catches a three-part name
+such as `orders.dbo.t` run from another database). A deadlock between two databases counts for
+both; one on another database of the server counts for that database only.
 
-`SELECT COUNT(*) AS n FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) WHERE object_name = 'xml_deadlock_report' AND timestamp_utc >= '<since>' AND timestamp_utc < '<until>'`
+First, how many of this database's deadlocks the window holds (SQL Server 2017 and later):
+
+`SELECT COUNT(*) AS n FROM (SELECT CAST(event_data AS xml) AS e, DB_ID() AS db FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) WHERE object_name = 'xml_deadlock_report' AND timestamp_utc >= '<since>' AND timestamp_utc < '<until>') f WHERE f.e.exist('event/data[@name="xml_report"]/value/deadlock[process-list/process/@currentdb = sql:column("f.db") or resource-list/*/@dbid = sql:column("f.db")]') = 1`
 
 Then the processes of each deadlock (both statements, lock modes, the victim), at most 100
 deadlocks a call. Above 100, call again from the last timestamp read, at most 5 calls:
 
-`SELECT d.at_utc, d.victim, p.x.value('@id','varchar(50)') AS process, p.x.value('@lockMode','varchar(20)') AS lock_mode, p.x.value('@waitresource','varchar(200)') AS wait_resource, p.x.value('(executionStack/frame/@procname)[1]','nvarchar(256)') AS proc_name, LEFT(p.x.value('(inputbuf)[1]','nvarchar(max)'), 400) AS statement FROM (SELECT TOP 100 f.e.value('(event/@timestamp)[1]','datetime2') AS at_utc, f.e.value('(event/data[@name="xml_report"]/value/deadlock/victim-list/victimProcess/@id)[1]','varchar(50)') AS victim, f.e.query('event/data[@name="xml_report"]/value/deadlock/process-list/process') AS procs FROM (SELECT CAST(event_data AS xml) AS e, timestamp_utc FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) WHERE object_name = 'xml_deadlock_report' AND timestamp_utc >= '<since>' AND timestamp_utc < '<until>') f ORDER BY f.timestamp_utc) d CROSS APPLY d.procs.nodes('process') p(x) ORDER BY d.at_utc, process`
+`SELECT d.at_utc, d.victim, p.x.value('@id','varchar(50)') AS process, p.x.value('@lockMode','varchar(20)') AS lock_mode, p.x.value('@waitresource','varchar(200)') AS wait_resource, p.x.value('(executionStack/frame/@procname)[1]','nvarchar(256)') AS proc_name, LEFT(p.x.value('(inputbuf)[1]','nvarchar(max)'), 400) AS statement FROM (SELECT TOP 100 f.e.value('(event/@timestamp)[1]','datetime2') AS at_utc, f.e.value('(event/data[@name="xml_report"]/value/deadlock/victim-list/victimProcess/@id)[1]','varchar(50)') AS victim, f.e.query('event/data[@name="xml_report"]/value/deadlock/process-list/process') AS procs FROM (SELECT CAST(event_data AS xml) AS e, timestamp_utc, DB_ID() AS db FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) WHERE object_name = 'xml_deadlock_report' AND timestamp_utc >= '<since>' AND timestamp_utc < '<until>') f WHERE f.e.exist('event/data[@name="xml_report"]/value/deadlock[process-list/process/@currentdb = sql:column("f.db") or resource-list/*/@dbid = sql:column("f.db")]') = 1 ORDER BY f.timestamp_utc) d CROSS APPLY d.procs.nodes('process') p(x) ORDER BY d.at_utc, process`
 
 And the objects and lock modes, for a new subject's note:
 
-`SELECT d.at_utc, r.x.value('local-name(.)','varchar(40)') AS resource_type, r.x.value('@objectname','nvarchar(400)') AS object_name, r.x.value('@indexname','nvarchar(256)') AS index_name, r.x.value('@mode','varchar(20)') AS held_mode, r.x.value('(owner-list/owner/@id)[1]','varchar(50)') AS owner, r.x.value('(waiter-list/waiter/@id)[1]','varchar(50)') AS waiter, r.x.value('(waiter-list/waiter/@mode)[1]','varchar(20)') AS waiter_mode FROM (SELECT TOP 100 f.e.value('(event/@timestamp)[1]','datetime2') AS at_utc, f.e.query('event/data[@name="xml_report"]/value/deadlock/resource-list/*') AS res FROM (SELECT CAST(event_data AS xml) AS e, timestamp_utc FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) WHERE object_name = 'xml_deadlock_report' AND timestamp_utc >= '<since>' AND timestamp_utc < '<until>') f ORDER BY f.timestamp_utc) d CROSS APPLY d.res.nodes('*') r(x) ORDER BY d.at_utc`
+`SELECT d.at_utc, r.x.value('local-name(.)','varchar(40)') AS resource_type, r.x.value('@objectname','nvarchar(400)') AS object_name, r.x.value('@indexname','nvarchar(256)') AS index_name, r.x.value('@mode','varchar(20)') AS held_mode, r.x.value('(owner-list/owner/@id)[1]','varchar(50)') AS owner, r.x.value('(waiter-list/waiter/@id)[1]','varchar(50)') AS waiter, r.x.value('(waiter-list/waiter/@mode)[1]','varchar(20)') AS waiter_mode FROM (SELECT TOP 100 f.e.value('(event/@timestamp)[1]','datetime2') AS at_utc, f.e.query('event/data[@name="xml_report"]/value/deadlock/resource-list/*') AS res FROM (SELECT CAST(event_data AS xml) AS e, timestamp_utc, DB_ID() AS db FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) WHERE object_name = 'xml_deadlock_report' AND timestamp_utc >= '<since>' AND timestamp_utc < '<until>') f WHERE f.e.exist('event/data[@name="xml_report"]/value/deadlock[process-list/process/@currentdb = sql:column("f.db") or resource-list/*/@dbid = sql:column("f.db")]') = 1 ORDER BY f.timestamp_utc) d CROSS APPLY d.res.nodes('*') r(x) ORDER BY d.at_utc`
 
 The event file can't be read (older versions, or no file target): read the ring buffer, same
 fields, from `SELECT CAST(t.target_data AS xml) AS d FROM sys.dm_xe_session_targets t JOIN sys.dm_xe_sessions s ON s.address = t.event_session_address WHERE s.name = 'system_health' AND t.target_name = 'ring_buffer'`,
-nodes `RingBufferTarget/event[@name="xml_deadlock_report"]`, filtered on `@timestamp`.
-Neither works: "statements unavailable" (step 4).
+nodes `RingBufferTarget/event[@name="xml_deadlock_report"]`, filtered on `@timestamp` and, as
+above, on a process `@currentdb` or a resource `@dbid` equal to `DB_ID()`.
+Neither works: SQL Server's branch of step 4.
 
 ### PostgreSQL: the server log
 Each deadlock writes `ERROR: deadlock detected` (SQLSTATE `40P01`), then a `DETAIL` line naming
@@ -147,8 +164,8 @@ time, both statements, the locks). It has no count, so report no `deadlock_event
 the step 4 note.
 
 ## 4. Statements unavailable
-The counter moved and no source answered (log export off, no logs tool works for the account,
-or the engine buffer can't be read):
+**PostgreSQL and MySQL** (SQL Server: its own paragraph below). The counter moved and no source
+answered (log export off, no logs tool works for the account, or the engine buffer can't be read):
 - report no `deadlock_events` for the database (it was not measured);
 - write a note `{target, check: deadlocks_repeat_any, subject: "", detail, fix}`: `detail` is
   "statements unavailable" with what you tried and what each answered (MySQL: plus the latest
@@ -158,15 +175,29 @@ or the engine buffer can't be read):
   - **Cloud SQL:** the logs are in Cloud Logging already; give the account's GCP connection
     `roles/logging.viewer`. MySQL also needs the `innodb_print_all_deadlocks` flag on;
   - **Self-managed:** ship the database's logs to the account's log store. PostgreSQL logs
-    deadlocks by default; `log_lock_waits = on` adds the waits;
-  - **SQL Server:** `system_health` runs by default; check the login has `VIEW SERVER STATE`.
+    deadlocks by default; `log_lock_waits = on` adds the waits.
 
 The rule `deadlocks_repeat_any` still opens from the counter alone, and this note says why there
 are no statements.
 
-The logs were read but hold no deadlock in the window (the counter is per server and the deadlock
-was on another database, or the lines are no longer kept): report
-`{target, metric: deadlock_events, subject: "", value: 0}` and say so in `evidence`.
+**SQL Server** has no catch-all: its counter is the server's, not this database's. When neither
+the event file nor the ring buffer can be read:
+- report no `deadlock_events` and no `deadlocks_server_total`, and write no note. The next sweep
+  then reads from the last window that was read, not from now;
+- say why in `evidence`, from the error: the login (SQL Server 2019 and older need
+  `VIEW SERVER STATE`; 2022 also accepts `VIEW SERVER PERFORMANCE STATE`), or `system_health` not
+  running (`SELECT name FROM sys.dm_xe_sessions WHERE name = 'system_health'` returns no row: an
+  admin stopped it);
+- the verdict is `partial`.
+
+`system_health` keeps a few files' worth of events. On a busy server, deadlocks older than its
+oldest file are gone by the next sweep and read as none: this database's count is a floor, not
+exact. The counter still moved, which the run says in `evidence`.
+
+The logs or `system_health` were read but hold none of this database's deadlocks in the window
+(the counter is per server and the deadlock was on another database, or the lines are no longer
+kept): report `{target, metric: deadlock_events, subject: "", value: 0}` and say so in
+`evidence`.
 
 ## 5. The code behind a new subject
 Only for a subject that is NOT listed with a note in `<bee_metrics>`, and once per subject. A

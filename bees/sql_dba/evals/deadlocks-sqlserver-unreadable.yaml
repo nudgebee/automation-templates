@@ -1,0 +1,4 @@
+name: Deadlocks sweep where one SQL Server database's counter moved but its login can't read system_health (neither the event file nor the ring buffer) - no deadlocks_server_total, no deadlock_events and no note for it, the reason (VIEW SERVER STATE) in evidence; the other databases checked as usual
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: partial
