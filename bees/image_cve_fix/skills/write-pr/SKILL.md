@@ -32,7 +32,11 @@ Use these sections, in this order. Leave out a section only when it has nothing 
    `fixed` list. More than 15 rows go inside `<details><summary>All N</summary> … </details>`. Link
    each CVE or GHSA id to `https://osv.dev/vulnerability/<id>`.
 7. **CVEs added**, if any, the same way. With any, there should be no pull request (read-scan).
-8. **How this was checked:** both images scanned in the cluster by the same scanner, when, and the
+8. **How it reaches the cluster:** whether merging deploys it. Look for what deploys the changed file
+   (a CI workflow, an Argo CD or Flux app). When nothing does (a version kept in a comment, a
+   `helm upgrade` run by hand), say so first in this section and give the exact command to run after
+   merging.
+9. **How this was checked:** both images scanned in the cluster by the same scanner, when, and the
    scan's execution id; each of the scan's `notes`; and that after rollout you check the new image
    runs, the pods are healthy and the fixed CVEs are gone.
 
