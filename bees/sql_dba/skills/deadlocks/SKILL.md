@@ -105,23 +105,29 @@ was in it (`@currentdb`), or a locked resource in it (`@dbid`, which catches a t
 such as `orders.dbo.t` run from another database). A deadlock between two databases counts for
 both; one on another database of the server counts for that database only.
 
+Every query here ends with `OPTION (MAX_GRANT_PERCENT = 1)`. Shredding XML asks for a memory grant
+(26 MB for these on a 1 GB RDS instance), and on a server short of memory it would queue behind the
+application's queries (`RESOURCE_SEMAPHORE`) until the call times out. The cap is an upper limit,
+so a large server loses nothing, and a monitoring query never competes with the workload.
+
 First, how many of this database's deadlocks the window holds (SQL Server 2017 and later):
 
-`SELECT COUNT(*) AS n FROM (SELECT CAST(event_data AS xml) AS e, DB_ID() AS db FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) WHERE object_name = 'xml_deadlock_report' AND timestamp_utc >= '<since>' AND timestamp_utc < '<until>') f WHERE f.e.exist('event/data[@name="xml_report"]/value/deadlock[process-list/process/@currentdb = sql:column("f.db") or resource-list/*/@dbid = sql:column("f.db")]') = 1`
+`SELECT COUNT(*) AS n FROM (SELECT CAST(event_data AS xml) AS e, DB_ID() AS db FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) WHERE object_name = 'xml_deadlock_report' AND timestamp_utc >= '<since>' AND timestamp_utc < '<until>') f WHERE f.e.exist('event/data[@name="xml_report"]/value/deadlock[process-list/process/@currentdb = sql:column("f.db") or resource-list/*/@dbid = sql:column("f.db")]') = 1 OPTION (MAX_GRANT_PERCENT = 1)`
 
 Then the processes of each deadlock (both statements, lock modes, the victim), at most 100
 deadlocks a call. Above 100, call again from the last timestamp read, at most 5 calls:
 
-`SELECT d.at_utc, d.victim, p.x.value('@id','varchar(50)') AS process, p.x.value('@lockMode','varchar(20)') AS lock_mode, p.x.value('@waitresource','varchar(200)') AS wait_resource, p.x.value('(executionStack/frame/@procname)[1]','nvarchar(256)') AS proc_name, LEFT(p.x.value('(inputbuf)[1]','nvarchar(max)'), 400) AS statement FROM (SELECT TOP 100 f.e.value('(event/@timestamp)[1]','datetime2') AS at_utc, f.e.value('(event/data[@name="xml_report"]/value/deadlock/victim-list/victimProcess/@id)[1]','varchar(50)') AS victim, f.e.query('event/data[@name="xml_report"]/value/deadlock/process-list/process') AS procs FROM (SELECT CAST(event_data AS xml) AS e, timestamp_utc, DB_ID() AS db FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) WHERE object_name = 'xml_deadlock_report' AND timestamp_utc >= '<since>' AND timestamp_utc < '<until>') f WHERE f.e.exist('event/data[@name="xml_report"]/value/deadlock[process-list/process/@currentdb = sql:column("f.db") or resource-list/*/@dbid = sql:column("f.db")]') = 1 ORDER BY f.timestamp_utc) d CROSS APPLY d.procs.nodes('process') p(x) ORDER BY d.at_utc, process`
+`SELECT d.at_utc, d.victim, p.x.value('@id','varchar(50)') AS process, p.x.value('@lockMode','varchar(20)') AS lock_mode, p.x.value('@waitresource','varchar(200)') AS wait_resource, p.x.value('(executionStack/frame/@procname)[1]','nvarchar(256)') AS proc_name, LEFT(p.x.value('(inputbuf)[1]','nvarchar(max)'), 400) AS statement FROM (SELECT TOP 100 f.e.value('(event/@timestamp)[1]','datetime2') AS at_utc, f.e.value('(event/data[@name="xml_report"]/value/deadlock/victim-list/victimProcess/@id)[1]','varchar(50)') AS victim, f.e.query('event/data[@name="xml_report"]/value/deadlock/process-list/process') AS procs FROM (SELECT CAST(event_data AS xml) AS e, timestamp_utc, DB_ID() AS db FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) WHERE object_name = 'xml_deadlock_report' AND timestamp_utc >= '<since>' AND timestamp_utc < '<until>') f WHERE f.e.exist('event/data[@name="xml_report"]/value/deadlock[process-list/process/@currentdb = sql:column("f.db") or resource-list/*/@dbid = sql:column("f.db")]') = 1 ORDER BY f.timestamp_utc) d CROSS APPLY d.procs.nodes('process') p(x) ORDER BY d.at_utc, process OPTION (MAX_GRANT_PERCENT = 1)`
 
 And the objects and lock modes, for a new subject's note:
 
-`SELECT d.at_utc, r.x.value('local-name(.)','varchar(40)') AS resource_type, r.x.value('@objectname','nvarchar(400)') AS object_name, r.x.value('@indexname','nvarchar(256)') AS index_name, r.x.value('@mode','varchar(20)') AS held_mode, r.x.value('(owner-list/owner/@id)[1]','varchar(50)') AS owner, r.x.value('(waiter-list/waiter/@id)[1]','varchar(50)') AS waiter, r.x.value('(waiter-list/waiter/@mode)[1]','varchar(20)') AS waiter_mode FROM (SELECT TOP 100 f.e.value('(event/@timestamp)[1]','datetime2') AS at_utc, f.e.query('event/data[@name="xml_report"]/value/deadlock/resource-list/*') AS res FROM (SELECT CAST(event_data AS xml) AS e, timestamp_utc, DB_ID() AS db FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) WHERE object_name = 'xml_deadlock_report' AND timestamp_utc >= '<since>' AND timestamp_utc < '<until>') f WHERE f.e.exist('event/data[@name="xml_report"]/value/deadlock[process-list/process/@currentdb = sql:column("f.db") or resource-list/*/@dbid = sql:column("f.db")]') = 1 ORDER BY f.timestamp_utc) d CROSS APPLY d.res.nodes('*') r(x) ORDER BY d.at_utc`
+`SELECT d.at_utc, r.x.value('local-name(.)','varchar(40)') AS resource_type, r.x.value('@objectname','nvarchar(400)') AS object_name, r.x.value('@indexname','nvarchar(256)') AS index_name, r.x.value('@mode','varchar(20)') AS held_mode, r.x.value('(owner-list/owner/@id)[1]','varchar(50)') AS owner, r.x.value('(waiter-list/waiter/@id)[1]','varchar(50)') AS waiter, r.x.value('(waiter-list/waiter/@mode)[1]','varchar(20)') AS waiter_mode FROM (SELECT TOP 100 f.e.value('(event/@timestamp)[1]','datetime2') AS at_utc, f.e.query('event/data[@name="xml_report"]/value/deadlock/resource-list/*') AS res FROM (SELECT CAST(event_data AS xml) AS e, timestamp_utc, DB_ID() AS db FROM sys.fn_xe_file_target_read_file('system_health*.xel', NULL, NULL, NULL) WHERE object_name = 'xml_deadlock_report' AND timestamp_utc >= '<since>' AND timestamp_utc < '<until>') f WHERE f.e.exist('event/data[@name="xml_report"]/value/deadlock[process-list/process/@currentdb = sql:column("f.db") or resource-list/*/@dbid = sql:column("f.db")]') = 1 ORDER BY f.timestamp_utc) d CROSS APPLY d.res.nodes('*') r(x) ORDER BY d.at_utc OPTION (MAX_GRANT_PERCENT = 1)`
 
 The event file can't be read (older versions, or no file target): read the ring buffer, same
 fields, from `SELECT CAST(t.target_data AS xml) AS d FROM sys.dm_xe_session_targets t JOIN sys.dm_xe_sessions s ON s.address = t.event_session_address WHERE s.name = 'system_health' AND t.target_name = 'ring_buffer'`,
 nodes `RingBufferTarget/event[@name="xml_deadlock_report"]`, filtered on `@timestamp` and, as
-above, on a process `@currentdb` or a resource `@dbid` equal to `DB_ID()`.
+above, on a process `@currentdb` or a resource `@dbid` equal to `DB_ID()`. The ring buffer holds
+megabytes of XML: cast it once, and end that query with `OPTION (MAX_GRANT_PERCENT = 1)` too.
 Neither works: SQL Server's branch of step 4.
 
 ### PostgreSQL: the server log
@@ -180,8 +186,10 @@ answered (log export off, no logs tool works for the account, or the engine buff
 The rule `deadlocks_repeat_any` still opens from the counter alone, and this note says why there
 are no statements.
 
-**SQL Server** has no catch-all: its counter is the server's, not this database's. When neither
-the event file nor the ring buffer can be read:
+**SQL Server** has no catch-all: its counter is the server's, not this database's. Azure SQL
+Database (`SERVERPROPERTY('EngineEdition')` = 5) has no `system_health` to read: its deadlocks are
+in `master`'s `dl` session, which this skill doesn't read yet; say that in `evidence`, and treat it
+like the case below. When neither the event file nor the ring buffer can be read:
 - report no `deadlock_events` and no `deadlocks_server_total`, and write no note. The next sweep
   then reads from the last window that was read, not from now;
 - say why in `evidence`, from the error: the login (SQL Server 2019 and older need
