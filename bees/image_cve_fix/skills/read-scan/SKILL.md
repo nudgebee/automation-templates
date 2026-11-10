@@ -12,21 +12,21 @@ A scan runs in the background on the platform; `scan_candidate` answers its `sca
 with `read_scan` (`scan_id`), which answers `status` and, when done, the `result`. Keep each scan's
 `scan_id` in the plan until its result is read.
 - `status: done`: read the `result` (below). It came back this run.
-- `status: running`, asked less than 1 hour ago: leave it open; read it again before you answer, and
-  next run.
-- `status: running` after 1 hour, or an error: clear it, and ask again this run, at most twice per
-  image and version. Then mark the image `not scanned` and say why.
+- `status: running`: leave it open and read it again before you answer, and next run. The platform
+  retries a slow scan on its own; never ask again while it says running.
+- An error reading it (not found, refused): clear it. Asking again follows section 2's limits.
 - `scan_candidate` came back waiting for approval and nothing ran within 24 hours: the ask went
-  unanswered or was declined; you can't tell which. Ask again at most once, then mark it
-  `not scanned`.
+  unanswered or was declined; you can't tell which. Ask again at most once.
 - Never ask `scan_candidate` again for an image and version whose `scan_id` is in the plan from the
-  last 24 hours: read that one.
+  last 24 hours and came back `scanned` or is running: read that one.
+- Each ask adds one to the image's `scan_tries` for that version. At 2, stop asking: the image stays
+  `pending` and its `next` says why it couldn't be scanned.
 
 ## 2. Read the outcome
 - `scanned`: read on.
-- `deferred`: the cluster had no room. Ask again next run.
-- `unscannable`: the image couldn't be pulled. Mark the version `not scanned` with the note.
-- `failed`: as `deferred`, at most twice, then `not scanned`.
+- `deferred`: the cluster had no room. Ask again next run (the 24-hour rule doesn't hold it back).
+- `unscannable`: the image couldn't be pulled. Stop asking for that version; say so with the note.
+- `failed`: as `deferred`, within the `scan_tries` limit.
 
 Never read anything but `scanned` as clean.
 

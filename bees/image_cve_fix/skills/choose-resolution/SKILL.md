@@ -17,9 +17,10 @@ then its owner the same way, up to the top.
 - A solver pod of a cert-manager ACME challenge (owner: a `Challenge`): the image is there only while
   the challenge is open. `kubectl get challenges.acme.cert-manager.io -n <ns>` and its `state`; one
   `pending` for more than a day is the real problem. Say so: the finding names the stuck challenge
-  and its domain, and the next step is fixing or deleting that challenge, not the image.
+  and its domain, and the next step is fixing or deleting that challenge, not the image. State `ops`.
 - A Job or CronJob pod, or a workload whose name or labels mark it a test or fixture (`test`, `e2e`,
-  `fixture`, `demo`): name it as such; its owner decides to turn it off (step 1) or keep it.
+  `fixture`, `demo`): name it as such; its owner decides to turn it off (step 1) or keep it. State
+  `ops`.
 - Anything else: go on.
 
 ## 1. Is it needed at all? → `turn_off`
@@ -58,7 +59,7 @@ change exactly goes in the plan with the command to run.
    every evidence line in `why`, marking AI-read lines as such. If the repository mirrors the image,
    the mirror definition moves too; a second pull request is fine.
 
-An upgrade whose scan didn't finish, or was never approved, is a plan entry marked `unscanned`, never a pull request.
+An upgrade whose scan didn't finish, or was never approved, stays `pending` with `next` saying why, never a pull request.
 
 ## 4. Your own image → `own_fix`
 Before calling it `own_fix`, rule out two cheaper moves:
@@ -69,14 +70,15 @@ Before calling it `own_fix`, rule out two cheaper moves:
   (`ghcr.io/<you>/qdrant` mirrors `qdrant/qdrant`) is the same: the newer upstream release is the
   candidate; if the mirror doesn't have it yet, the next step is mirroring it.
 - **A newer build already made.** A tag that carries a date or a build time more than 90 days old,
-  when the same repository has newer builds, is "deploy the newer build", not "rebuild".
+  when the same repository has newer builds, is "deploy the newer build", not "rebuild" (state
+  `own_fix`, with that as `next`).
 
 Only then a plan entry naming the move: rebuild, change the base, remove a package, or retire it.
 Split the findings by operating system and application package, and say which move clears how many.
 
 ## 5. A dead line → `replace`
 The project is archived, unmaintained, or the distribution is out of support. A plan entry with a
-replacement you scanned. If it can't be scanned, mark it `unscanned`.
+replacement you scanned. If it can't be scanned, it stays `pending` with `next` saying why.
 
 ## 6. Nothing applies → `none`
 No fix yet, or the risk is accepted. Suggest `patch_in_place`, `not_affected` or `accepted` for a
