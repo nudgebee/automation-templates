@@ -121,7 +121,7 @@ End with a ```json block. All fields are required, and `evidence` is never omitt
  "stage": "working", "verdict": "improved", "open_findings": 303,
  "checked": [{"target": "ghcr.io/acme/web", "check": "fixable_cves"}, {"target": "ghcr.io/acme/search", "check": "fixable_cves"}],
  "findings": [{"target": "ghcr.io/acme/web", "check": "fixable_cves", "severity": "critical",
-   "title": "1 Critical, 59 High fixable", "value": 60, "unit": "cves", "state": "planned",
+   "title": "1 Critical, 59 High fixable", "value": 60, "unit": "cves", "state": "planned", "next": "review",
    "detail": "Upgrade 1.4.2 → 1.6.0 (chart web 2.3.0): the scan fixes 58, adds none; confidence Medium. Next: review the pull request.",
    "link": "https://github.com/acme/infra/pull/12"}],
  "metrics": [{"target": "all", "metric": "fixable_critical", "value": 15}, {"target": "all", "metric": "fixable_high", "value": 288},
@@ -147,7 +147,11 @@ End with a ```json block. All fields are required, and `evidence` is never omitt
 - `findings`: one per image step 2 counted with fixable Critical or High CVEs. `severity` is `critical`
   when it has any Critical, else `warning`. `title`: its counts. `detail`: the chosen fix and its
   evidence in one or two sentences, then `Next:` and who acts (review a pull request, approve a scan,
-  rebuild an own image, accept a risk). `state` is `planned` while a pull request for it is open,
+  rebuild an own image, accept a risk). `next` is the person's next step, which the Bee page turns into a button:
+  `review` when `link` is an open pull request; `ticket` when someone outside the bee has to act
+  (`own_fix`, `turn_off`, `replace`, `ops`); `fix_access` when you couldn't read what you needed for
+  it (forbidden, no integration); none while you are still working on it (`pending`, `scanned`).
+  `state` is `planned` while a pull request for it is open,
   `open` otherwise; `link` is that pull request. An image with no fixable Critical or High CVEs has no
   finding.
 - `metrics`, only from step 2's count and the work since the last scheduled run: `fixable_critical`
