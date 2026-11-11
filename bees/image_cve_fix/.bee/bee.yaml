@@ -1,7 +1,7 @@
 schema: bee/v1
 name: image_cve_fix                     # canonical: snake_case, fixed forever
 display_name: Image CVE Fix Bee
-version: 1.3.0
+version: 1.4.0
 description: Brings down fixable Critical and High CVEs on the images running in the namespaces you choose. For each image it finds the cheapest fix that works, scans a newer version before asking to upgrade, opens the pull request, and proves the result on the running image.
 author: { name: Nudgebee }
 
@@ -60,6 +60,18 @@ output:                                 # summary, evidence and runs are built i
         metric: { type: string, enum: [fixable_critical, fixable_high, cves_fixed, prs_opened] }
         value: { type: number }
       required: [target, metric, value]
+  notes:
+    type: array
+    items:
+      type: object
+      properties:
+        target: { type: string }
+        check: { type: string, enum: [fixable_cves] }
+        subject: { type: string }
+        detail: { type: string }
+        fix: { type: string }
+        links: { type: array, items: { type: string } }
+      required: [target, check, subject, detail]
   plan:
     type: object
 
@@ -71,6 +83,7 @@ findings:
   findings_field: findings
   units: [cves, prs]
   metrics_field: metrics
+  notes_field: notes
   metrics:
     fixable_critical: { kind: gauge, unit: cves }
     fixable_high: { kind: gauge, unit: cves }

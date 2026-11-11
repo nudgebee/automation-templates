@@ -70,6 +70,17 @@ than the answer.
    - Count distinct findings: rows repeat when two workloads share an image.
    - This view shows only images on active pods, and hides scan bookkeeping, so an image missing here is not proof that it is clean. List the namespace's workloads with `kubectl` too, and report any it doesn't cover.
    - The number is the sum. If it is 0 and no image in the plan is waiting on anything, answer `stage: nothing_open`.
+   - For the notes (answer), read the worst fixable CVEs of the images a person has to act on, in
+     one query, worst first:
+     ```sql
+     SELECT image, workload_type, workload_name, vulnerability_id, severity,
+       recommendation::jsonb->>'PkgName' AS package, recommendation::jsonb->>'InstalledVersion' AS installed,
+       recommendation::jsonb->>'FixedVersion' AS fixed
+     FROM security_view
+     WHERE namespace IN ('<namespaces>') AND category = 'image_scan' AND severity IN ('Critical', 'High')
+       AND COALESCE(recommendation::jsonb->>'FixedVersion', '') <> '' AND image IN ('<images>')
+     ORDER BY CASE severity WHEN 'Critical' THEN 0 ELSE 1 END, image, vulnerability_id LIMIT 100
+     ```
 3. **New and gone images.** An image step 2 counts that the plan doesn't have is added `pending`. An
    image the plan has that step 2 no longer counts is checked (step 8) before it leaves the plan.
 4. **Scan results.** For each open scan in the plan, run `read_scan` with its `scan_id` and follow
@@ -127,6 +138,10 @@ End with a ```json block. All fields are required, and `evidence` is never omitt
  "metrics": [{"target": "all", "metric": "fixable_critical", "value": 15}, {"target": "all", "metric": "fixable_high", "value": 288},
    {"target": "ghcr.io/acme/web", "metric": "fixable_critical", "value": 1}, {"target": "ghcr.io/acme/web", "metric": "fixable_high", "value": 59},
    {"target": "ghcr.io/acme/search", "metric": "cves_fixed", "value": 6}, {"target": "ghcr.io/acme/web", "metric": "prs_opened", "value": 1}],
+ "notes": [{"target": "ghcr.io/acme/web", "check": "fixable_cves", "subject": "",
+   "detail": "Runs as payments/Deployment web, tag 1.4.2.\nCVE-2026-1111 · openssl 3.0.13 → 3.0.15 · Critical\nCVE-2026-2222 · golang.org/x/net 0.21.0 → 0.33.0 · High\nand 57 more.",
+   "fix": "1. Review the pull request bumping web to 1.6.0 (chart web 2.3.0 → 2.4.0).\n2. Merge and roll it out.\n3. The bee re-checks the image and closes this when the CVEs are gone.",
+   "links": ["https://osv.dev/vulnerability/CVE-2026-1111", "https://osv.dev/vulnerability/CVE-2026-2222", "https://github.com/acme/infra/pull/12"]}],
  "plan": {"total": 303, "images": {"ghcr.io/acme/web": {"tag": "1.4.2", "critical": 1, "high": 59, "state": "upgrade_pr",
    "rules": 4, "candidate": "1.6.0", "confidence": "Medium", "pr": "https://github.com/acme/infra/pull/12", "declined": [],
    "scan": null, "scan_tries": {"1.6.0": 1}, "proof": null,
@@ -154,6 +169,17 @@ End with a ```json block. All fields are required, and `evidence` is never omitt
   `state` is `planned` while a pull request for it is open,
   `open` otherwise; `link` is that pull request. An image with no fixable Critical or High CVEs has no
   finding.
+- `notes`: one per finding whose `next` is `ticket` or `review`, for the person who picks it up and has
+  not seen this bee: `target` and `check` as on the finding, `subject` `""`.
+  - `detail`: where it runs (namespace, workload kind and name, tag; "tag latest" when unpinned), then
+    up to five of its worst fixable CVEs from step 2's notes query, one per line:
+    `CVE-… · package installed → fixed · Severity`, then how many more.
+  - `fix`: numbered steps for this image's resolution, specific enough to follow: the exact upgrade
+    (from → to, and which file or chart), or the rebuild (which base image or packages), or the
+    owner and the stuck object to clear, then "the bee re-checks the image and closes this when the
+    CVEs are gone".
+  - `links`: `https://osv.dev/vulnerability/<id>` for each CVE listed, then release notes or the pull
+    request when there is one.
 - `metrics`, only from step 2's count and the work since the last scheduled run: `fixable_critical`
   and `fixable_high` per image and as `target: all`; `cves_fixed` per image whose fix step 8 proved
   (how many of its CVEs went); `prs_opened` per image a pull request was opened for (`created` only).
