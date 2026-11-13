@@ -94,14 +94,17 @@ This is one look a day. The `sqlserver_blocking_long_running_watch` template loo
 minutes, for long requests too, and raises an event while it lasts.
 
 ## hygiene_agent_jobs
-`SELECT COUNT(DISTINCT h.job_id) AS n FROM msdb.dbo.sysjobhistory h WHERE h.step_id = 0 AND h.run_status = 0 AND h.run_date >= CONVERT(int, CONVERT(char(8), DATEADD(day, -1, GETDATE()), 112))` (jobs, not runs)
+First: `SELECT CAST(SERVERPROPERTY('EngineEdition') AS int) AS engine_edition`. 4 is Express, which
+has no SQL Server Agent, so no job can fail: the check ran and found nothing (it goes into
+`checked`, with no finding and no msdb read). Say "Express: no SQL Server Agent" in `evidence`.
+
+Otherwise: `SELECT COUNT(DISTINCT h.job_id) AS n FROM msdb.dbo.sysjobhistory h WHERE h.step_id = 0 AND h.run_status = 0 AND h.run_date >= CONVERT(int, CONVERT(char(8), DATEADD(day, -1, GETDATE()), 112))` (jobs, not runs)
 (Since yesterday's date, so at most 48 hours. Don't use `msdb.dbo.agent_datetime`: RDS denies EXECUTE on it.)
 
 Detail: the failed jobs' names (join `msdb.dbo.sysjobs`), `TOP 20`.
 
 If msdb can't be read, the check is not run. Give the error in `evidence`, and don't guess why.
-On RDS the job history can stay closed even with `SQLAgentReaderRole`, and SQL Server Express has
-no Agent at all.
+On RDS the job history can stay closed even with `SQLAgentReaderRole`.
 
 ## hygiene_file_space
 This database's data and log files that used 90% of what they can grow to: a capped
