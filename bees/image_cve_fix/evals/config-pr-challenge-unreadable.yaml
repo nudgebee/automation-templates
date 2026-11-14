@@ -1,0 +1,5 @@
+name: A solver pod runs for a challenge the bee is not allowed to read
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: unchanged
+  runs: []

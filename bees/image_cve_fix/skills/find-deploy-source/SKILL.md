@@ -17,11 +17,16 @@ from a name. When you can't find it, say which step stopped you and why.
 | label `argocd.argoproj.io/instance`, or annotation `argocd.argoproj.io/tracking-id` | Argo CD. Go to step 2. |
 | labels `kustomize.toolkit.fluxcd.io/name` + `/namespace` | Flux Kustomization. Go to step 3. |
 | labels `helm.toolkit.fluxcd.io/name` + `/namespace` | Flux HelmRelease. Go to step 3. |
-| annotation `meta.helm.sh/release-name` only | Installed with `helm` from outside git. No repo: the fix is a `helm upgrade` command. |
+| annotation `meta.helm.sh/release-name` only | Installed with `helm`. Read the release's workloads first (below). None marked: installed from outside git. No repo: the fix is a `helm upgrade` command. |
 | annotation `kubectl.kubernetes.io/last-applied-configuration` only | Applied by hand with `kubectl apply`. No repo: the fix is the exact manifest change plus the command. |
 | none | Unknown. Say so. |
 
 Do not use `app.kubernetes.io/instance`: plain Helm sets it too.
+
+A chart often marks only its workloads, not its Ingress or Service. For a resource with
+`meta.helm.sh/release-name` only: `kubectl get deploy,sts -n <namespace> -o json` and keep those whose
+`meta.helm.sh/release-name` annotation is the same release. One that carries `ci.nudgebee.com/git.repo`
+gives its markers to the whole release: go to step 4 with them.
 
 ## 2. Argo CD
 - **Application name:**

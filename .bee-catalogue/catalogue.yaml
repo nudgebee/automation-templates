@@ -10,6 +10,6 @@ bees:
     tags: [kubernetes, upgrade]
   - name: image_cve_fix
     source: ./bees/image_cve_fix
-    version: 1.3.0
-    checksum: 89ecc229ce2871f55379b0518df3dda62526fc304236e661185f3b79dc257bf8
+    version: 1.4.0
+    checksum: b7f6154e68bd63629cfabf3ce1cbccb630da23a36f28eb1f81c4ea17cbdd46f5
     tags: [kubernetes, security, cve]

@@ -6,7 +6,7 @@ Brings down one number: fixable Critical and High CVEs on the images running in 
    (critical when any is Critical), its fix, its pull request and what's next, and the **Image CVEs**
    dashboard with the totals day by day and what each fix cleared. Its plan is kept by the platform
    between runs; there is no tracking issue.
-2. For each image it picks the cheapest fix that works: turn off what nobody uses, take a waiting dependency update, upgrade, rebuild, or replace a dead project.
+2. For each image it picks the cheapest fix that works: turn off what nobody uses, take a waiting dependency update, upgrade, rebuild, replace a dead project, or remove a domain whose certificate can no longer renew.
 3. Before asking to upgrade, it scans the newer version next to the running one. It asks only when CVEs are fixed and none are new, and lists what is left.
 4. Opens the pull request. It asks every time, and never merges or reopens a pull request someone closed.
 5. After the rollout, it proves the result on the running image.

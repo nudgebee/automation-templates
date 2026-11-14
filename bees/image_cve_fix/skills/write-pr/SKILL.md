@@ -1,6 +1,6 @@
 ---
 name: write-pr
-description: Write the description of an upgrade pull request so a reviewer can decide in a minute what it fixes, what could break, and how sure the bee is. Use before every open_fix_pr.
+description: Write the description of an upgrade or configuration pull request so a reviewer can decide in a minute what it fixes, what could break, and how sure the bee is. Use before every open_fix_pr.
 ---
 # Write the pull request
 
@@ -44,6 +44,22 @@ Use these sections, in this order. Leave out a section only when it has nothing 
 9. **How this was checked:** both images scanned in the cluster by the same scanner, when, and each
    scan's whole `scan_id`; each of the scan's `notes`; and that after rollout you check the new image
    runs, the pods are healthy and the fixed CVEs are gone.
+
+## Configuration shape
+A `config_pr` (choose-resolution step 0) removes a domain instead of moving a version. Use these
+sections instead, in this order:
+
+1. **One line on top:** `Removes <domain> from <file>: its certificate can't renew and expires on <date>.`
+2. **What fails, since when:** the challenge, its state, its `reason` quoted from the tool output, and
+   when it was created.
+3. **The certificate:** its name and `notAfter`; after that date the domain serves an expired
+   certificate whether or not this is merged.
+4. **Two ways out:** restore the domain's DNS and close this pull request (the bee won't propose it
+   again), or merge it to stop serving the domain. Name anything else in the file that still mentions
+   the domain; it is left alone.
+5. **CVEs:** the solver image and its fixable Critical and High counts, which go with the challenge.
+6. **How it reaches the cluster:** as section 8 above. When the workflow that deploys the file runs
+   only on other changes, say it ships with that workflow's next deploy and how to start one.
 
 ## Rules
 - The confidence level is `assess_upgrade`'s. Never raise it, and never open a pull request for Low.

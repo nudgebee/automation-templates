@@ -1,6 +1,6 @@
 ---
 name: choose-resolution
-description: Decide what to do about one image's CVEs, cheapest resolution first, and which of the six states it ends in. Use for every image in scope, every run.
+description: Decide what to do about one image's CVEs, cheapest resolution first, and which state it ends in. Use for every image in scope, every run.
 ---
 # Choose a resolution
 
@@ -18,6 +18,17 @@ then its owner the same way, up to the top.
   the challenge is open. `kubectl get challenges.acme.cert-manager.io -n <ns>` and its `state`; one
   `pending` for more than a day is the real problem. Say so: the finding names the stuck challenge
   and its domain, and the next step is fixing or deleting that challenge, not the image. State `ops`.
+  - It is `config_pr` instead when all three hold: the challenge was created more than 7 days ago and
+    its `reason` is a DNS lookup failure (`no such host`, `NXDOMAIN`); the Certificate for that domain
+    (`kubectl get certificates.cert-manager.io -n <ns>`, `spec.dnsNames`) has `status.notAfter` within
+    21 days or past; and find-deploy-source finds the repository file that deploys the Ingress the
+    Certificate belongs to (its `ownerReferences`; never the solver's own Ingress), and that Ingress keeps
+    at least one other host once the domain is gone (an Ingress left with no rules is refused). The fix is that file
+    without the domain: `open_fix_pr` removes the domain's `rules` entry and its `tls` entry, each an
+    exact replacement with empty `new`; remove the whole `tls` item when the domain is its only host, so
+    cert-manager deletes the Certificate and its challenge. Write the pull request as write-pr's
+    configuration shape.
+  - The challenge can't be read (forbidden): state `ops`, `next` `fix_access`, naming the read that failed.
 - A Job or CronJob pod, or a workload whose name or labels mark it a test or fixture (`test`, `e2e`,
   `fixture`, `demo`): name it as such; its owner decides to turn it off (step 1) or keep it. State
   `ops`.
@@ -58,6 +69,14 @@ change exactly goes in the plan with the command to run.
    request. Otherwise change the chart version, or the tag, with `open_fix_pr`, and put the level and
    every evidence line in `why`, marking AI-read lines as such. If the repository mirrors the image,
    the mirror definition moves too; a second pull request is fine.
+5. A chart component whose chart version is set where `open_fix_pr` can't write (a CI workflow file,
+   or only a command run by hand; find-deploy-source) while its values file is in a repository: don't
+   wait for a chart bump. The candidate is the newest upstream release of the component's own image;
+   scan it as in 3. The fix pins it in the values file under the keys the chart's `values.yaml` at the
+   running version reads for that image (`<component>.image.repository` and `.tag`); when the
+   component's block has no `image:` yet, replace its whole top-level block with one that has it. Run
+   `assess_upgrade` with `kind: image`. The pull request says the chart stays at its version and that
+   the pin goes when the chart is next bumped.
 
 An upgrade whose scan didn't finish, or was never approved, stays `pending` with `next` saying why, never a pull request.
 
