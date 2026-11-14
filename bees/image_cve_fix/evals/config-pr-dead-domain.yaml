@@ -1,0 +1,5 @@
+name: A solver pod's challenge has failed DNS for 8 days, its certificate expires in 10 days, and the Ingress's values file is in a repository
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: unchanged
+  runs: [open_fix_pr]

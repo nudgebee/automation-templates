@@ -8,7 +8,7 @@ summary: Open or add to the pull request that fixes one image's CVEs in one repo
 slug: image_cve_fix__open_fix_pr
 name: "Open or add to the image CVE fix pull request"
 description: "Makes up to three exact text replacements on the plan's branch and opens its pull request, or adds a commit to the open one. Never merges, never force-pushes, never reopens a declined pull request."
-version: 1.0.0
+version: 1.0.1
 definition:
   version: "v1"
   inputs:
@@ -18,13 +18,14 @@ definition:
     - { id: description, type: string, required: true, description: "The pull request description in Markdown, written as the write-pr skill says" }
     - { id: path1, type: string, required: true, description: "Path of a file to change in the repository" }
     - { id: old1, type: string, required: true, description: "Exact text in path1 to replace; must occur exactly once. Copy it from the file, whitespace included" }
-    - { id: new1, type: string, required: true, description: "The text that replaces old1" }
+    - { id: new1, type: string, required: false, default: "", description: "The text that replaces old1; empty removes old1, only with remove: yes" }
     - { id: path2, type: string, required: false, default: "", description: "Optional second change: path" }
     - { id: old2, type: string, required: false, default: "", description: "Exact text in path2 to replace (exactly once)" }
     - { id: new2, type: string, required: false, default: "", description: "Replacement for old2" }
     - { id: path3, type: string, required: false, default: "", description: "Optional third change: path" }
     - { id: old3, type: string, required: false, default: "", description: "Exact text in path3 to replace (exactly once)" }
     - { id: new3, type: string, required: false, default: "", description: "Replacement for old3" }
+    - { id: remove, type: string, required: false, default: "no", description: "yes when a change removes text (an empty new); an empty new without it is refused" }
   triggers:
     - type: manual
   tasks:
@@ -41,6 +42,7 @@ definition:
           KEY=$(dec '{{ Inputs.plan_key | b64encode }}')
           TITLE=$(dec '{{ Inputs.title | b64encode }}')
           DESC=$(dec '{{ Inputs.description | b64encode }}')
+          REMOVE=$(dec '{{ Inputs.remove | default("no") | b64encode }}')
           [ "$(printf %s "$DESC" | wc -c)" -ge 200 ] || { echo "result=refused reason=description too short: write it as the write-pr skill says"; exit 1; }
           [[ "$REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || { echo "result=refused reason=repo must be owner/name"; exit 1; }
           [[ "$KEY" =~ ^[a-z0-9][a-z0-9._-]{0,79}$ ]] || { echo "result=refused reason=plan_key must be lowercase letters, digits, dot, dash or underscore"; exit 1; }
@@ -86,12 +88,13 @@ definition:
             local dir; dir=$(cd "$(dirname "$file")" && pwd -P)
             case "$dir/" in "$ROOT"/*) ;; *) echo "result=refused reason=path leaves the repository $file"; exit 1 ;; esac
             [ -n "$old" ] || { echo "result=refused reason=empty old text for $file"; exit 1; }
+            [ -n "$new" ] || [ "$REMOVE" = "yes" ] || { echo "result=refused reason=empty new text for $file: pass remove: yes to remove text"; exit 1; }
             local content; content=$(cat "$file"; printf x); content=${content%x}
             if [[ "$content" != *"$old"* ]]; then
               # Applied already (a re-run on the open pull request's branch): old is in the default
-              # branch's file exactly once, gone here, and new is here.
+              # branch's file exactly once, gone here, and new is here (an empty new removed old).
               local base; base=$(git show "origin/HEAD:$file" 2>/dev/null; printf x); base=${base%x}
-              if [[ -n "$new" && "$content" == *"$new"* && "$base" == *"$old"* ]]; then
+              if [[ ( -z "$new" || "$content" == *"$new"* ) && "$base" == *"$old"* ]]; then
                 local base_rest=${base#*"$old"}
                 [[ "$base_rest" != *"$old"* ]] && return 0
               fi
@@ -101,7 +104,7 @@ definition:
             [[ "$rest" != *"$old"* ]] || { echo "result=refused reason=old text occurs more than once in $file"; exit 1; }
             printf %s "${content%%"$old"*}$new$rest" > "$file"
           }
-          edit_file "$(dec '{{ Inputs.path1 | b64encode }}')" "$(dec '{{ Inputs.old1 | b64encode }}'; printf x)" "$(dec '{{ Inputs.new1 | b64encode }}'; printf x)"
+          edit_file "$(dec '{{ Inputs.path1 | b64encode }}')" "$(dec '{{ Inputs.old1 | b64encode }}'; printf x)" "$(dec '{{ Inputs.new1 | default("") | b64encode }}'; printf x)"
           edit_file "$(dec '{{ Inputs.path2 | default("") | b64encode }}')" "$(dec '{{ Inputs.old2 | default("") | b64encode }}'; printf x)" "$(dec '{{ Inputs.new2 | default("") | b64encode }}'; printf x)"
           edit_file "$(dec '{{ Inputs.path3 | default("") | b64encode }}')" "$(dec '{{ Inputs.old3 | default("") | b64encode }}'; printf x)" "$(dec '{{ Inputs.new3 | default("") | b64encode }}'; printf x)"
 

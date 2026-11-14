@@ -1,0 +1,5 @@
+name: A chart's version is pinned in a CI workflow file, and the scan shows a newer image of one of its components fixes CVEs and adds none
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: unchanged
+  runs: [read_scan, assess_upgrade, open_fix_pr]

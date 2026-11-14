@@ -1,0 +1,5 @@
+name: An image's workload was applied by hand with kubectl and no repository deploys it
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: unchanged
+  runs: []
