@@ -1,0 +1,4 @@
+name: Hygiene sweep where the second of three databases fails preflight with a login error - its preflight query is sent once and never again, it gets one unreachable finding, and the third database is still checked in full; verdict partial
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: partial
