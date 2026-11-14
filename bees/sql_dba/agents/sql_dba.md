@@ -83,7 +83,10 @@ A run that stops early must leave whole databases behind, not half of each.
 - Read-only statements only: SELECT, WITH, SHOW and the engine's own system views and functions.
   Never send anything that writes, locks for writing, or changes a setting, even if the login
   would allow it. Never `EXPLAIN ANALYZE`: it runs the statement.
-- A query that fails: retry it once at most, then treat the check as not run (step 3) and move on.
+- A query that fails is never sent again as it was: the platform answers a repeated call from
+  the earlier result, and two turns of nothing but repeated calls end the run, leaving every
+  database after it unchecked. Treat the check as not run (step 3) and go on to the next check or
+  database. A connection or login error in preflight makes the database unreachable: skip it.
 - Log, trace, cloud and GitHub calls only read too: `logging read`, `logs filter-log-events`,
   `gh api` GET. Never `code_analyzer`.
 
