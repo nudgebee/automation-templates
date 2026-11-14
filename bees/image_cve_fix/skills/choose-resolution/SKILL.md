@@ -50,7 +50,9 @@ change exactly goes in the plan with the command to run.
 ## 3. Upstream chart or image with a newer version → `upgrade_pr`
 1. Find the newer versions: `gh api repos/<owner>/<repo>/releases`, and upstream chart values with
    `gh api repos/<owner>/<repo>/contents/<path>?ref=<tag>`. Use `helm_execute` only for
-   `helm get values` on the running release.
+   `helm get values` on the running release. For a chart's component image, read the image's own
+   project releases too, not only the chart's. "No newer release" names the newest release you read
+   and where.
 2. For a chart, read which image tags the new chart version ships. Those are the candidates.
 3. Scan the candidate against the running image with `scan_candidate` (read-scan).
 4. Apply the rule in read-scan. On `upgrade`, judge what it could break, then run `assess_upgrade`:
@@ -94,6 +96,8 @@ Before calling it `own_fix`, rule out two cheaper moves:
 
 Only then a plan entry naming the move: rebuild, change the base, remove a package, or retire it.
 Split the findings by operating system and application package, and say which move clears how many.
+Run find-deploy-source on its workload too: a rebuilt image still needs a way into the cluster. When
+no repository deploys it, the finding says so (How to answer).
 
 ## 5. A dead line → `replace`
 The project is archived, unmaintained, or the distribution is out of support. A plan entry with a
