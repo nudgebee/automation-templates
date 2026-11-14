@@ -5,7 +5,7 @@
 # v1 limits: github.com only (the step sets no GH_HOST for GitHub Enterprise), and the step's
 # image is amd64-only.
 summary: Open or add to the pull request that fixes one image's CVEs in one repository.
-slug: image_cve_fix__open_fix_pr
+slug: image_cve_fix_next__open_fix_pr
 name: "Open or add to the image CVE fix pull request"
 description: "Makes up to three exact text replacements on the plan's branch and opens its pull request, or adds a commit to the open one. Never merges, never force-pushes, never reopens a declined pull request."
 version: 1.0.1

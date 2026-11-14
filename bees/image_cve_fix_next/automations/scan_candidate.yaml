@@ -4,7 +4,7 @@
 # the background and keeps its result: this answers a scan_id at once, and read_scan reads the result
 # by that id, in this run or a later one.
 summary: Scan a newer tag of a running image and compare it with the running one.
-slug: image_cve_fix__scan_candidate
+slug: image_cve_fix_next__scan_candidate
 name: "Scan a candidate image"
 description: "Starts a scan of a newer tag of an image a workload runs (pulled onto a node, never run) against the running image. Answers scan_id and status at once; read the result with read_scan."
 version: 1.1.0

@@ -3,7 +3,7 @@
 # the scan verdict, the version distance (from the two versions) and the OS family decide it; the
 # signals the agent read (release notes, chart values, Kubernetes APIs) can only lower it.
 summary: Compute the confidence level for one upgrade from its scan and break-risk signals.
-slug: image_cve_fix__assess_upgrade
+slug: image_cve_fix_next__assess_upgrade
 name: "Assess an upgrade"
 description: "Returns High, Medium or Low for one upgrade, with every evidence line. Low never becomes a pull request."
 version: 1.0.0
