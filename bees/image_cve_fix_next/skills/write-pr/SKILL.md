@@ -59,7 +59,8 @@ sections instead, in this order:
    the domain; it is left alone.
 5. **CVEs:** the solver image and its fixable Critical and High counts, which go with the challenge.
 6. **How it reaches the cluster:** as section 8 above. When the workflow that deploys the file runs
-   only on other changes, say it ships with that workflow's next deploy and how to start one.
+   only on other changes, say it ships with that workflow's next deploy and how to start one, with
+   the `workflow_dispatch` input that forces the deploy when the workflow has one.
 
 ## Rules
 - The confidence level is `assess_upgrade`'s. Never raise it, and never open a pull request for Low.
