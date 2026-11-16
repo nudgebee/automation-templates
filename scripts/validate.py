@@ -100,9 +100,30 @@ NAME_RE = re.compile(r"^[a-zA-Z0-9](?:[a-zA-Z0-9 _-]*[a-zA-Z0-9])?$")
 # Go time.ParseDuration units; durations may be concatenated (e.g. "1h30m").
 DURATION_RE = re.compile(r"^(\d+(\.\d+)?(ns|us|µs|ms|s|m|h))+$")
 
+# Defaults only the tenant can know: a dummy host, or one fixed AWS region.
+DUMMY_DEFAULT_RE = re.compile(r"\bexample\.(com|org|net)\b", re.IGNORECASE)
+REGION_INPUT_IDS = {"region", "aws_region"}
+
 
 def _is_duration(s):
     return isinstance(s, str) and bool(DURATION_RE.match(s))
+
+
+def _input_default_errors(inputs):
+    errs = []
+    for inp in inputs or []:
+        if not isinstance(inp, dict):
+            continue
+        iid, default = inp.get("id"), inp.get("default")
+        values = default if isinstance(default, list) else [default]
+        if any(isinstance(v, str) and DUMMY_DEFAULT_RE.search(v) for v in values):
+            errs.append(f"input {iid!r}: default {default!r} is a placeholder; leave it empty and mark the input required")
+        if iid in REGION_INPUT_IDS:
+            if default not in (None, ""):
+                errs.append(f"input {iid!r}: default region {default!r} silently limits every run to it; make the input required")
+            elif inp.get("required") is not True:
+                errs.append(f"input {iid!r}: region input must be required: true so the form asks for it")
+    return errs
 
 
 def validate_workflow_semantics(doc, rel):
@@ -164,6 +185,7 @@ def validate_workflow_semantics(doc, rel):
                     t.get("type") == "cicd.argocd.cli" and ARGOCD_CHANGE_RE.search(cmd)):
                 errs.append(f"task {t.get('id')!r} changes a live workload and the template can start "
                             f"without a person ({', '.join(unattended)}); add a core.approval before it")
+    errs.extend(_input_default_errors(definition.get("inputs")))
 
     # Cycle detection over depends_on (DFS), matching the engine.
     adj = {t.get("id"): list(t.get("depends_on") or []) for t in tasks if isinstance(t, dict)}

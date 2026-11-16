@@ -36,8 +36,8 @@ definition:
       description: "RDS DB instance identifier, for free storage from CloudWatch. Leave empty when the server isn't on RDS."
     - id: "region"
       type: "string"
-      required: false
-      default: "us-east-1"
+      required: true
+      description: "AWS region of the RDS instance. Used only when an RDS instance is set."
     - id: "notification_channel"
       type: "string"
       required: true
@@ -225,7 +225,9 @@ template_variables:
 - id: aws_region
   input_ref: region
   display_name: AWS Region
-  required: false
+  help_text: Region of the RDS instance; used only when an RDS instance is set
+  placeholder: us-east-1
+  required: true
   type: string
   group: AWS
 - id: slack_channel

@@ -34,7 +34,7 @@ definition:
       required: true
     - id: "region"
       type: "string"
-      default: "us-east-1"
+      required: true
       description: "AWS region of the instance."
     - id: "action"
       type: "string"
@@ -175,6 +175,7 @@ template_variables:
     input_ref: "region"
     display_name: "AWS region"
     placeholder: "us-east-1"
+    required: true
   - id: "action"
     input_ref: "action"
     display_name: "Inspection"
