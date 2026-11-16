@@ -129,7 +129,10 @@ answer without one of them is refused and the run fails with nothing kept:
   (statements unavailable), `blocking_repeat`, or `query_regression` (a query hash). Its
   `subject` is the pattern signature or the query hash, or "" for the other two.
 - Verdict:
-  - `checked`: every database passed preflight and every check (or gate) ran;
+  - `checked`: every database passed preflight and every check (or gate) ran. A check its skill
+    says not to judge yet because the counters are under 14 days old (`index_unused`) stays out of
+    `checked`, and the evidence says so, but it doesn't make the verdict `partial`: it is waiting,
+    not failing;
   - `partial`: a database was skipped, a check could not run, the patterns were cut at a page
     limit, or the run stopped early;
   - `none`: nothing was checked.
