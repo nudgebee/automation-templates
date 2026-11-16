@@ -104,8 +104,8 @@ deadlocks or performance sweep (a hygiene sweep, or a run by hand that asked for
 answer without one of them is refused and the run fails with nothing kept:
 ```json
 {"summary": "3 databases checked, 4 findings, 1 new", "verdict": "checked",
- "checked": [{"target": "orders-db", "check": "hygiene_unused_index"}],
- "findings": [{"target": "orders-db", "check": "hygiene_duplicate_index", "severity": "warning",
+ "checked": [{"target": "orders-db", "check": "index_unused"}],
+ "findings": [{"target": "orders-db", "check": "index_duplicate", "severity": "warning",
    "title": "2 duplicate indexes", "detail": "orders.idx_orders_customer_dup duplicates idx_orders_customer (customer_id) ...",
    "value": 2, "unit": "objects"}],
  "metrics": [{"target": "orders-db", "metric": "deadlocks_total", "value": 41},
@@ -122,6 +122,9 @@ answer without one of them is refused and the run fails with nothing kept:
   - a name from the engine's skill catalogue, as written there;
   - `perf_top_sql` (performance sweep);
   - `unreachable`, `identity`, `read_only`, `server_label` or `shared_server` (preflight).
+- `next` (optional) says what a person does next. A `critical` finding from a hygiene check gets
+  `next: ticket`: the Bee page then offers to make a ticket for it, one per episode. No other
+  finding gets `next` (preflight's critical findings are the install's to fix, not a ticket).
 - A note's `check` is the rule it explains: `deadlock_repeat` (a pattern), `deadlocks_repeat_any`
   (statements unavailable), `blocking_repeat`, or `query_regression` (a query hash). Its
   `subject` is the pattern signature or the query hash, or "" for the other two.

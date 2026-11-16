@@ -1,0 +1,4 @@
+name: Hygiene sweep on a SQL Server 2017 database with missing-index requests - the advice query runs, the queries-behind-it query is not sent (major version 14), each advice says the queries are not named before SQL Server 2019, and the check still counts as checked
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: checked

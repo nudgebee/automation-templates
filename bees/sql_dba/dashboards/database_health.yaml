@@ -35,7 +35,7 @@ definition:
             limit: 500
     - id: 3
       title: Objects to fix
-      description: Indexes and tables the findings name on the latest day (duplicate, unused or missing indexes, tables without a primary key, stale statistics).
+      description: Indexes and tables the findings name on the latest day (index advice, duplicate or unused indexes, tables without a primary key, stale statistics).
       type: stat
       datasource: nudgebee
       grid_pos: { x: 6, y: 0, w: 3, h: 4 }
@@ -226,5 +226,35 @@ definition:
             table: bee_metric_amounts_v2
             columns: [{ name: day, expr: date_unit, args: [day] }, { name: target }, { name: sum_amount }]
             where: { _and: [ { _binary: { metric: { _eq: query_regressed } } }, { _binary: { subject: { _neq: "" } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 16
+      title: Connections, by database
+      description: Clients connected to each database when the bee looked, every six hours; the day's average of those readings. The bee is learning each database's usual range from these; no finding opens on them yet.
+      type: timeseries
+      datasource: nudgebee
+      grid_pos: { x: 0, y: 74, w: 6, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: target }, { name: avg_value }]
+            where: { _and: [ { _binary: { metric: { _eq: sessions } } } ] }
+            order_by: [{ column: day, order: desc }]
+            limit: 500
+    - id: 17
+      title: Query CPU per day, by database (SQL Server)
+      description: CPU milliseconds of the queries Query Store kept in the 24 hours before each daily sweep. The bee is learning each database's usual range from these; no finding opens on them yet.
+      type: timeseries
+      datasource: nudgebee
+      grid_pos: { x: 6, y: 74, w: 6, h: 8 }
+      targets:
+        - ref_id: A
+          time_column: day
+          query:
+            table: bee_metric_levels_v2
+            columns: [{ name: day, expr: date_unit, args: [day] }, { name: target }, { name: last_value }]
+            where: { _and: [ { _binary: { metric: { _eq: db_cpu_ms } } } ] }
             order_by: [{ column: day, order: desc }]
             limit: 500

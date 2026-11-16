@@ -1,8 +1,8 @@
 schema: bee/v1
 name: sql_dba                            # canonical: snake_case, fixed forever
 display_name: SQL DBA Bee
-version: 0.4.3
-description: Checks your SQL Server, PostgreSQL and MySQL databases the way a DBA would - daily hygiene, every six hours the deadlocks and blocking that repeat, and every day on SQL Server the waits, top queries, critical queries and regressions, with the code behind them. Findings live on the Bee page; the team hears about them only when something changed.
+version: 0.5.0
+description: Checks your SQL Server, PostgreSQL and MySQL databases the way a DBA would - daily hygiene with index advice from the workload, every six hours the deadlocks and blocking that repeat, and every day on SQL Server the waits, top queries, critical queries and regressions, with the code behind them. Findings live on the Bee page; the team hears about them only when something changed.
 author: { name: Nudgebee }
 
 install:
@@ -80,6 +80,7 @@ output:                                  # summary, evidence and runs are built 
         value: { type: number }
         unit: { enum: [objects, settings, sessions, databases, jobs, files, volumes, megabytes, percent] }
         link: { type: string }
+        next: { enum: [ticket] }
       required: [target, check, severity, title]
   metrics:
     type: array
@@ -87,7 +88,7 @@ output:                                  # summary, evidence and runs are built 
       type: object
       properties:
         target: { type: string }
-        metric: { type: string, enum: [deadlocks_total, deadlocks_server_total, deadlock_events, blocked_seconds, long_blocks, wait_ms, query_avg_ms, query_avg_cpu_ms, query_avg_reads, query_executions, query_regressed] }
+        metric: { type: string, enum: [deadlocks_total, deadlocks_server_total, deadlock_events, blocked_seconds, long_blocks, wait_ms, query_avg_ms, query_avg_cpu_ms, query_avg_reads, query_executions, query_regressed, sessions, db_cpu_ms, db_wait_ms] }
         subject: { type: string }
         value: { type: number }
       required: [target, metric, value]
@@ -131,8 +132,16 @@ findings:
     query_avg_reads: { kind: gauge, unit: reads }
     query_executions: { kind: events, unit: executions }
     query_regressed: { kind: events, unit: queries }
+    # Readings for each database's usual range, taken as levels, never as running totals: a counter's
+    # amount is "since the last read", so a missed sweep would double it. sessions every six hours
+    # (deadlocks sweep, every engine); CPU and waits of the last 24 hours from Query Store (performance
+    # sweep, SQL Server). No rule reads them yet: a baseline rule has no floor, so a quiet database
+    # (1 session, then 2) would open on noise. Their rules come with one, after 14 days of history.
+    sessions: { kind: gauge, unit: sessions }
+    db_cpu_ms: { kind: gauge, unit: milliseconds }
+    db_wait_ms: { kind: gauge, unit: milliseconds }
   rules:
-    deadlock_repeat: { kind: sum_over, metric: deadlock_events, window: 7d, warning: 2, critical_per_day: 2, title: "Deadlock repeats" }
+    deadlock_repeat: { kind: sum_over, metric: deadlock_events, window: 7d, warning: 2, critical_per_day: 2, title: "Deadlock repeats", next: ticket }
     # The catch-all for a database whose statements can't be read; quiet where a pattern is open.
     # PostgreSQL and MySQL only: SQL Server reports deadlocks_server_total, not deadlocks_total.
     deadlocks_repeat_any: { kind: sum_over, metric: deadlocks_total, window: 7d, warning: 2, title: "Deadlocks repeat", unless: deadlock_repeat }
@@ -145,7 +154,7 @@ findings:
     # scales a counter's amount by the time between reads. Baselines only ever warn.
     critical_query_slower: { kind: baseline, metric: query_avg_ms, window: 28d, min_days: 7, change: 0.5, title: "Critical query slower than usual" }
     # The bee reports 1 for a query whose last 24h average is twice its week before (Query Store).
-    query_regression: { kind: sum_over, metric: query_regressed, window: 7d, warning: 1, title: "Query regressed" }
+    query_regression: { kind: sum_over, metric: query_regressed, window: 7d, warning: 1, title: "Query regressed", next: ticket }
 
 budget:
   # Uncached input + output per run; input read from the prompt cache does not count.

@@ -8,7 +8,29 @@ plan for a person. The bee sends only read queries, and before each run it check
 can do nothing more than read. That check is not a guarantee: the guarantee is giving it a
 read-only login.
 
-## v0.4 (this version)
+## v0.5 (this version)
+What changed since v0.4:
+- **Index advice, SQL Server** (`index_advice`, daily hygiene): the indexes SQL Server's optimizer
+  asked for, merged with the table's existing indexes (an existing index whose leading keys match
+  is extended with INCLUDE columns instead of adding a new one), each with the queries it would help
+  (SQL Server 2019 and later name them), the table's size and its writes since the server started.
+  Every advice is marked unverified: it is SQL Server's own estimate, and an index can't be tested
+  without creating it. Commands are written for a person, never run.
+- **Duplicate and unused indexes, every engine** (`index_duplicate`, `index_unused`): an index
+  backing a primary key or unique constraint, or one a foreign key references, is never one to drop,
+  and each duplicate names the index to keep. Unused leaves out unique indexes and indexes on a
+  foreign key's columns. They replace v0.1's `hygiene_duplicate_index`, `hygiene_unused_index` and
+  `hygiene_missing_index`: the first hygiene report after the upgrade shows those cleared and the
+  new ones as new, once.
+- **Usual-range readings:** connections per database every six hours (every engine), and each SQL
+  Server database's CPU and query waits over the last 24 hours (Query Store). They are levels, not
+  running totals, so a missed sweep doesn't look like a spike. No finding opens on them yet: the
+  platform's baseline rule has no floor (a quiet database going from 1 session to 2 would open
+  one), so their rules come with that floor, once 14 days of history exist.
+- **Tickets:** a critical hygiene finding, a repeating deadlock and a regressed query offer a
+  ticket on the Bee page ("needs a ticket"), one per episode; a second click comments on it.
+
+## v0.4
 - **Preflight:** the database is reachable, and its login can only read. A database whose login can
   write is skipped.
 - **Daily hygiene sweep:** per-engine checks in `skills/hygiene-*`, one catalogue per engine.
@@ -73,8 +95,9 @@ Baselines (critical queries) only ever warn: a platform rule of that kind has no
 Query Store must be collecting: a full (read-only) store is reported as not checked, not as an
 idle day.
 
-**Later:** an index advisor from the workload, the performance sweep on PostgreSQL and MySQL, and
-baselines on load and connections.
+**Later:** findings when connections, CPU or waits go far above their usual range (needs a
+floor on the platform's baseline rule), index advice on PostgreSQL and MySQL, and the performance
+sweep on PostgreSQL and MySQL.
 
 ## Setup
 - **One SQL integration per database,** named after it. On RDS and Cloud SQL, use the instance

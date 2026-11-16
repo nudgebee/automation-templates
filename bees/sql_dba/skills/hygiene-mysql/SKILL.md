@@ -18,8 +18,8 @@ Every check below goes into `checked` as `{target: <database>, check: <name>}`.
 | check | severity | unit |
 |---|---|---|
 | hygiene_monitoring_off | warning | settings |
-| hygiene_duplicate_index | warning | objects |
-| hygiene_unused_index | info | objects |
+| index_duplicate | warning | objects |
+| index_unused | info | objects |
 | hygiene_no_primary_key | warning | objects |
 | hygiene_fragmentation | info | objects |
 | hygiene_long_tx | critical | sessions |
@@ -32,21 +32,28 @@ Fix:
 - turn on `innodb_print_all_deadlocks` (dynamic; on RDS, through the parameter group). Without it,
   only the last deadlock is kept.
 
-## hygiene_duplicate_index
-- Count: `SELECT COUNT(*) AS n FROM sys.schema_redundant_indexes WHERE table_schema NOT IN SYS`
-- Detail: `SELECT table_schema, table_name, redundant_index_name, redundant_index_columns, dominant_index_name, sql_drop_index FROM sys.schema_redundant_indexes WHERE table_schema NOT IN SYS LIMIT 20`
+## index_duplicate
+An index whose columns another index on the table already starts with (`sys.schema_redundant_indexes`
+names both: the redundant one and the dominant one to keep). The primary key and unique indexes are
+never the one to drop.
+- Count: `SELECT COUNT(DISTINCT r.table_schema, r.table_name, r.redundant_index_name) AS n FROM sys.schema_redundant_indexes r JOIN information_schema.statistics s ON s.table_schema = r.table_schema AND s.table_name = r.table_name AND s.index_name = r.redundant_index_name AND s.seq_in_index = 1 WHERE r.table_schema NOT IN SYS AND r.redundant_index_name <> 'PRIMARY' AND s.non_unique = 1`
+- Detail: `SELECT r.table_schema, r.table_name, r.redundant_index_name, MIN(r.redundant_index_columns) AS redundant_index_columns, MIN(r.dominant_index_name) AS dominant_index_name, MIN(r.sql_drop_index) AS sql_drop_index FROM sys.schema_redundant_indexes r JOIN information_schema.statistics s ON s.table_schema = r.table_schema AND s.table_name = r.table_name AND s.index_name = r.redundant_index_name AND s.seq_in_index = 1 WHERE r.table_schema NOT IN SYS AND r.redundant_index_name <> 'PRIMARY' AND s.non_unique = 1 GROUP BY r.table_schema, r.table_name, r.redundant_index_name LIMIT 20`
+- `detail`: per row, "drop `redundant_index_name` (`dominant_index_name` covers it)". An index
+  covered by several others is one row, naming one of them.
 
 Fix: drop the redundant index after checking that no query hint names it. Quote `sql_drop_index`
 as the statement to review; never run it.
 
-## hygiene_unused_index
+## index_unused
 - Don't judge this check (it is not run) in two cases:
   - `performance_schema` is off: the view is then always empty;
   - `SHOW GLOBAL STATUS LIKE 'Uptime'` is below 1209600 seconds (14 days): the counters are too
     young to trust.
-- Count (unique indexes left out, as on the other engines):
-  `SELECT COUNT(*) AS n FROM sys.schema_unused_indexes u JOIN information_schema.statistics s ON s.table_schema = u.object_schema AND s.table_name = u.object_name AND s.index_name = u.index_name AND s.seq_in_index = 1 WHERE u.object_schema NOT IN SYS AND s.non_unique = 1`
-- Detail: the same join, selecting `u.object_schema, u.object_name, u.index_name`, `LIMIT 20`.
+- Count: `SELECT COUNT(*) AS n FROM sys.schema_unused_indexes u JOIN information_schema.statistics s ON s.table_schema = u.object_schema AND s.table_name = u.object_name AND s.index_name = u.index_name AND s.seq_in_index = 1 WHERE u.object_schema NOT IN SYS AND s.non_unique = 1 AND NOT EXISTS (SELECT 1 FROM information_schema.KEY_COLUMN_USAGE k WHERE k.TABLE_SCHEMA = s.table_schema AND k.TABLE_NAME = s.table_name AND k.REFERENCED_TABLE_NAME IS NOT NULL AND k.ORDINAL_POSITION = 1 AND k.COLUMN_NAME = s.column_name)`
+- Detail: `SELECT u.object_schema, u.object_name, u.index_name FROM sys.schema_unused_indexes u JOIN information_schema.statistics s ON s.table_schema = u.object_schema AND s.table_name = u.object_name AND s.index_name = u.index_name AND s.seq_in_index = 1 WHERE u.object_schema NOT IN SYS AND s.non_unique = 1 AND NOT EXISTS (SELECT 1 FROM information_schema.KEY_COLUMN_USAGE k WHERE k.TABLE_SCHEMA = s.table_schema AND k.TABLE_NAME = s.table_name AND k.REFERENCED_TABLE_NAME IS NOT NULL AND k.ORDINAL_POSITION = 1 AND k.COLUMN_NAME = s.column_name) LIMIT 20`
+- Never listed: the primary key, unique indexes, and an index that starts with a foreign key's
+  column (InnoDB needs an index on a foreign key's columns, and it slows deletes on the parent
+  table without one).
 
 Fix: confirm with the owning team that no monthly job uses it, then drop it. Unused indexes still
 cost every write.
