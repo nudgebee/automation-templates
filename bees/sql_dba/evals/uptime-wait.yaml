@@ -1,0 +1,4 @@
+name: Hygiene sweep where every database passes preflight and every check runs, except index_unused on a SQL Server up 10 days and a MySQL server up 897693 seconds (both under 14 days) - index_unused is not judged there and not in checked, the evidence says the counters are under 14 days old, and the verdict is checked, not partial
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: checked
