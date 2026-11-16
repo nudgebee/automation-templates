@@ -1,0 +1,4 @@
+name: Deadlocks sweep where one SQL Server database's counter moved and system_health holds 2 deadlocks of one new pattern (an UPDATE of inventory and an UPDATE of customer_credit in opposite orders), the app logged no deadlock error line and no traces name the tables, and the repo in repos has both statements in two Go files - deadlock_events 2 for that subject and a deadlock_repeat note whose code names both files from a code search with the lines read, and a fix that puts the updates in one order; no findings written by the bee
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked

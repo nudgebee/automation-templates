@@ -224,6 +224,11 @@ subject with a note is done: don't trace it again, even if it recurs.
 3. **The code.** When step 1 gave a file and `repos` is set, read it from each repo in turn until
    one has it: `github_execute` `gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d`.
    Read only; quote the few lines around the statement.
+   When step 1 gave no file (no error line was logged, or it had no stack) and `repos` is set,
+   search for each statement instead, each repo in turn until one has it:
+   `gh search code "<a distinctive fragment of the statement>" --repo <owner/name> --limit 5 --json path,url`
+   (the fragment as code would write it: the verb, the table and a column, never a value), then
+   read the few lines around it as above. One search per statement.
 4. **Nothing found:** the note names the service and endpoint from step 2, or says "code not found".
 
 Then write the note `{target, check: deadlock_repeat, subject, detail, code, fix, links}`:

@@ -110,8 +110,8 @@ listed) and the top SQL are where it shows then.
 ### The note behind a regression
 For a hash that has no note in `<bee_metrics>`, or whose note there is more than 7 days old (a
 query that regressed again). At most **one per database and three per run**, largest `added_ms`
-first; the rest get theirs on a later run. No plan XML in any query: plan ids, plan hashes and
-numbers only.
+first; the rest get theirs on a later run. Plan XML is read in one query only, for one plan (the
+indexes query in 2); everything else is plan ids, plan hashes and numbers.
 
 1. **Its plans and text** (one turn, both queries):
    - `SELECT p.plan_id, p.query_id, p.is_forced_plan, p.force_failure_count, p.last_force_failure_reason_desc, p.compatibility_level, CONVERT(varchar(20), p.query_plan_hash, 1) AS plan_hash, SUM(CASE WHEN i.start_time >= DATEADD(hour, -24, SYSDATETIMEOFFSET()) THEN rs.count_executions END) AS recent_n, CAST(SUM(CASE WHEN i.start_time >= DATEADD(hour, -24, SYSDATETIMEOFFSET()) THEN rs.avg_duration * rs.count_executions END) / NULLIF(SUM(CASE WHEN i.start_time >= DATEADD(hour, -24, SYSDATETIMEOFFSET()) THEN rs.count_executions END), 0) / 1000.0 AS decimal(18,3)) AS recent_avg_ms, SUM(CASE WHEN i.start_time < DATEADD(hour, -24, SYSDATETIMEOFFSET()) THEN rs.count_executions END) AS prior_n, CAST(SUM(CASE WHEN i.start_time < DATEADD(hour, -24, SYSDATETIMEOFFSET()) THEN rs.avg_duration * rs.count_executions END) / NULLIF(SUM(CASE WHEN i.start_time < DATEADD(hour, -24, SYSDATETIMEOFFSET()) THEN rs.count_executions END), 0) / 1000.0 AS decimal(18,3)) AS prior_avg_ms, MIN(p.initial_compile_start_time) AS first_compiled, MAX(p.last_execution_time) AS last_used FROM sys.query_store_plan p JOIN sys.query_store_query q ON q.query_id = p.query_id JOIN sys.query_store_runtime_stats rs ON rs.plan_id = p.plan_id JOIN sys.query_store_runtime_stats_interval i ON i.runtime_stats_interval_id = rs.runtime_stats_interval_id WHERE q.query_hash = <hash> AND i.start_time >= DATEADD(day, -8, SYSDATETIMEOFFSET()) GROUP BY p.plan_id, p.query_id, p.is_forced_plan, p.force_failure_count, p.last_force_failure_reason_desc, p.compatibility_level, p.query_plan_hash ORDER BY recent_n DESC OPTION (MAX_GRANT_PERCENT = 1)`
@@ -125,6 +125,15 @@ numbers only.
      `SELECT OBJECT_SCHEMA_NAME(s.object_id) + '.' + OBJECT_NAME(s.object_id) AS table_name, s.name AS stats_name, p.last_updated, p.rows, p.modification_counter FROM sys.stats s CROSS APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) p WHERE s.object_id IN (OBJECT_ID(N'<schema.table>'), ...) ORDER BY p.last_updated DESC`
      No rows means the login can't read them (it needs SELECT on the table): say "statistics
      unreadable", never "statistics unchanged".
+   - **The indexes the faster plan used**, when the plan shape changed and an earlier plan of the
+     same query id was faster (that plan's id from 1):
+     `WITH XMLNAMESPACES (DEFAULT 'http://schemas.microsoft.com/sqlserver/2004/07/showplan'), o AS (SELECT DISTINCT n.o.value('@Database', 'sysname') AS db, n.o.value('@Schema', 'sysname') + '.' + n.o.value('@Table', 'sysname') AS table_name, n.o.value('@Index', 'sysname') AS index_name FROM sys.query_store_plan p CROSS APPLY (SELECT TRY_CAST(p.query_plan AS xml) AS x) c CROSS APPLY c.x.nodes('//Object[@Index]') n(o) WHERE p.plan_id = <plan id>) SELECT table_name, index_name, CASE WHEN OBJECT_ID(table_name) IS NOT NULL THEN 1 ELSE 0 END AS table_exists, CASE WHEN EXISTS (SELECT 1 FROM sys.indexes i WHERE i.object_id = OBJECT_ID(table_name) AND QUOTENAME(i.name) = index_name) THEN 1 ELSE 0 END AS still_exists FROM o WHERE (db IS NULL OR db = QUOTENAME(DB_NAME())) AND table_name IS NOT NULL AND table_name NOT LIKE '%.[[]#%' OPTION (MAX_GRANT_PERCENT = 1)`
+     Only this database's tables are listed (not other databases' or temporary tables).
+     - `table_exists` 1 and `still_exists` 0: that index is gone (dropped or renamed); the faster
+       plan can't run again.
+     - `table_exists` 0: the table is gone, renamed, or the login can't see it. Say which can't be
+       told apart; don't advise recreating anything, and don't offer that plan to force.
+     - No rows: the plan read no index of this database, or its XML is too deep to read.
 3. **The code** (until one step answers):
    - `module` from 1 is a procedure: that is the code in the database; also look for its name in
      `repos` (below) to find the caller.
@@ -134,6 +143,8 @@ numbers only.
    - `github_execute`, each repo in `repos` in turn until one has it:
      `gh search code "<a distinctive fragment of the text or the procedure name>" --repo <owner/name> --limit 5 --json path,url`,
      then read the few lines around it (`gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d`).
+   - An index is gone: also search each repo for its name (without brackets), to find the
+     migration or change that dropped it.
    - Nothing found: the note names the service and endpoint, or says "code not found".
 
 Write `{target, check: query_regression, subject: <hash>, detail, code, fix, links}`:
@@ -141,10 +152,17 @@ Write `{target, check: query_regression, subject: <hash>, detail, code, fix, lin
   per plan; whether the **plan shape** changed: the `plan_hash` carrying most of the last 24 hours
   differs from the one that carried the week before (a new plan id with the same plan hash is a
   recompile, not a new plan); statistics updated or heavily modified since the slowdown began, or
-  unreadable; SQL Server's recommendation if it gave one.
+  unreadable; any index the faster plan used that is gone; SQL Server's recommendation if it gave
+  one.
 - `fix`, from that evidence:
+  - **An index the faster plan used is gone** (`table_exists` 1, `still_exists` 0): the fix is to
+    recreate it, or to undo its rename, not to force that plan (forcing fails without the index).
+    Name the index and its table, and the change that dropped or renamed it when the code step
+    finds one; its definition is in that change or in the repo's history.
   - **The plan shape changed**, and an earlier plan of the **same query id** was faster: it is a
-    candidate to force when it is still in Query Store, its `force_failure_count` is 0, its
+    candidate to force when every index it used still exists (each row `still_exists` 1), it is
+    still in Query Store, its
+    `force_failure_count` is 0, its
     `compatibility_level` matches the current plan's, and no plan of that query id is forced
     already. Write the command for a person, never run it, with positional arguments:
     `EXEC sp_query_store_force_plan <query id>, <plan id>;` (undo:
