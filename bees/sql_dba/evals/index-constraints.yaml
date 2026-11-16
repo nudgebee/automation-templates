@@ -1,0 +1,4 @@
+name: Hygiene sweep where a SQL Server table has a unique index on its primary key's columns, two identical plain indexes, and an unused index that leads with a foreign key's column, and a PostgreSQL table has a unique index identical to its unique constraint - index_duplicate drops the SQL Server unique index keeping the primary key, drops one plain index keeping the other, drops the PostgreSQL unique index keeping the constraint's; no primary key or constraint-backed index is ever a drop; index_unused does not list the foreign key's index
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: checked

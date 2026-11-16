@@ -1,0 +1,4 @@
+name: Hygiene sweep where one database has a transaction open for an hour and another fails preflight with a login error - the critical hygiene_long_tx finding has next ticket, the unreachable finding has no next, and no warning or info finding has next
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: partial

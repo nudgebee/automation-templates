@@ -1,0 +1,4 @@
+name: Hygiene sweep on a SQL Server 2022 database with two missing-index requests, one whose equality columns lead an existing nonclustered index and one with no such index - one info index_advice finding marked unverified, an extend line naming the existing index and the columns to add as INCLUDE, a new CREATE INDEX for a person to review, each with the queries it helps (hash, uses, text), the table's rows and size and its writes since restart as the queries returned them; nothing created or run
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: checked

@@ -1,6 +1,6 @@
 ---
 name: performance-sqlserver
-description: The daily performance sweep for SQL Server - waits per server, the top queries, the install's critical queries over time, and the queries that got slower, with the plan and the code behind each.
+description: The daily performance sweep for SQL Server - waits per server, the top queries and each database's load and waits, the install's critical queries over time, and the queries that got slower, with the plan and the code behind each.
 ---
 # SQL Server performance
 
@@ -15,7 +15,7 @@ none answers `none`.
 Every query below runs read-only, with `database` = the entry's database. The Query Store queries end with
 `OPTION (MAX_GRANT_PERCENT = 1)`: their sorts and aggregates ask for a memory grant, and on a server
 short of memory they would queue behind the application's queries until the call times out. Send each database's
-gate, top SQL, critical-query and regression queries together in one turn, and every database's
+gate, top SQL, load, critical-query and regression queries together in one turn, and every database's
 in the same turn when you can.
 
 **Numbers in notes:** never write a number right after `=`, `<` or `>` (the platform masks such
@@ -23,7 +23,7 @@ numbers as SQL literals before it stores a note). Write "plan 48213", "1234 ms",
 commands with positional arguments, as below.
 
 ## 1. Query Store, per database
-`SELECT actual_state_desc, readonly_reason, interval_length_minutes, current_storage_size_mb, max_storage_size_mb, (SELECT MAX(end_time) FROM sys.query_store_runtime_stats_interval) AS last_interval_end, DATEDIFF(minute, (SELECT MAX(end_time) FROM sys.query_store_runtime_stats_interval), SYSDATETIMEOFFSET()) AS minutes_since_last_interval FROM sys.database_query_store_options`
+`SELECT actual_state_desc, readonly_reason, interval_length_minutes, current_storage_size_mb, max_storage_size_mb, (SELECT MAX(end_time) FROM sys.query_store_runtime_stats_interval) AS last_interval_end, DATEDIFF(minute, (SELECT MAX(end_time) FROM sys.query_store_runtime_stats_interval), SYSDATETIMEOFFSET()) AS minutes_since_last_interval, CAST(SERVERPROPERTY('ProductMajorVersion') AS int) AS major, CAST(SERVERPROPERTY('EngineEdition') AS int) AS engine_edition FROM sys.database_query_store_options`
 
 Query Store is **current** when `actual_state_desc` is `READ_WRITE` or `READ_ONLY` and
 `minutes_since_last_interval` is at most `interval_length_minutes` + 60. Then run 3 to 5.
@@ -61,6 +61,23 @@ The ten queries that took the most time in the last 24 hours:
 - No rows (an idle database): no finding, still `checked`.
 
 A hash from this list is what goes into the `critical_queries` setting.
+
+### The database's load and waits
+In the same turn, the totals of the last 24 hours (a window of time, so a missed sweep doesn't
+double the next day's numbers):
+- CPU: `SELECT CAST(SUM(rs.avg_cpu_time * rs.count_executions) / 1000.0 AS float) AS db_cpu_ms FROM sys.query_store_runtime_stats rs JOIN sys.query_store_runtime_stats_interval i ON i.runtime_stats_interval_id = rs.runtime_stats_interval_id WHERE i.start_time >= DATEADD(hour, -24, SYSDATETIMEOFFSET()) OPTION (MAX_GRANT_PERCENT = 1)`
+- Waits, only when step 1's `major` is 14 or more, or `engine_edition` is 5 or 8 (Azure SQL); SQL
+  Server 2016 keeps no waits in Query Store:
+  `SELECT CAST(SUM(ws.total_query_wait_time_ms) AS float) AS db_wait_ms, (SELECT wait_stats_capture_mode_desc FROM sys.database_query_store_options) AS wait_capture FROM sys.query_store_wait_stats ws JOIN sys.query_store_runtime_stats_interval i ON i.runtime_stats_interval_id = ws.runtime_stats_interval_id WHERE i.start_time >= DATEADD(hour, -24, SYSDATETIMEOFFSET()) AND ws.wait_category_desc NOT IN ('Idle', 'User Wait', 'Network IO') OPTION (MAX_GRANT_PERCENT = 1)`
+
+Report:
+- `{target, metric: db_cpu_ms, value: <db_cpu_ms>}`: the CPU time of the queries Query Store kept.
+- `{target, metric: db_wait_ms, value: <db_wait_ms>}`: the time those queries waited (idle,
+  application and client network waits left out), only when `wait_capture` is `ON`. On SQL Server
+  2016, or with capture off, leave it out and say so in `evidence`.
+- NULL (no query ran in 24 hours): report 0.
+
+The platform keeps them to learn each database's usual load and waits; no rule reads them yet.
 
 ## 4. Critical queries, per database
 `critical_queries` lists `name:0xHASH` entries. For this database's hashes (the entries whose

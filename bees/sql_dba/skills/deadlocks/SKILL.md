@@ -24,6 +24,9 @@ One query (below, per engine). Report these metrics as read, whatever happens ne
   back would make the next sweep count the same deadlocks again);
 - `{target, metric: blocked_seconds, value: <blocked_seconds>}`;
 - `{target, metric: long_blocks, value: <long_blocks>}` (1 when a session has waited 30s or more, else 0).
+- `{target, metric: sessions, value: <sessions>}`: the clients connected to this database now
+  (MySQL: to this schema), the bee's own session included. The platform keeps them to learn each
+  database's usual number of connections; no rule reads them yet.
 
 Then compare the counter with the value `<bee_metrics>` gives, by equality only:
 - **Equal:** report `{target, metric: deadlock_events, subject: "", value: 0}` and stop deadlocks
@@ -47,21 +50,23 @@ database: two databases on one server would both be charged with one deadlock. H
 only decides whether to read the patterns; step 3 reads this database's deadlocks only, so
 `deadlock_events` says which database had them.
 
-`SELECT (SELECT cntr_value FROM sys.dm_os_performance_counters WHERE counter_name = 'Number of Deadlocks/sec' AND instance_name = '_Total') AS deadlocks_server_total, (SELECT COUNT(*) FROM sys.dm_exec_requests WHERE blocking_session_id <> 0 AND database_id = DB_ID()) AS blocked_sessions, (SELECT COALESCE(SUM(CAST(wait_time AS bigint)), 0) / 1000.0 FROM sys.dm_exec_requests WHERE blocking_session_id <> 0 AND database_id = DB_ID()) AS blocked_seconds, CASE WHEN EXISTS (SELECT 1 FROM sys.dm_exec_requests WHERE blocking_session_id <> 0 AND database_id = DB_ID() AND wait_time >= 30000) THEN 1 ELSE 0 END AS long_blocks, SYSUTCDATETIME() AS read_at`
+`SELECT (SELECT cntr_value FROM sys.dm_os_performance_counters WHERE counter_name = 'Number of Deadlocks/sec' AND instance_name = '_Total') AS deadlocks_server_total, (SELECT COUNT(*) FROM sys.dm_exec_requests WHERE blocking_session_id <> 0 AND database_id = DB_ID()) AS blocked_sessions, (SELECT COALESCE(SUM(CAST(wait_time AS bigint)), 0) / 1000.0 FROM sys.dm_exec_requests WHERE blocking_session_id <> 0 AND database_id = DB_ID()) AS blocked_seconds, CASE WHEN EXISTS (SELECT 1 FROM sys.dm_exec_requests WHERE blocking_session_id <> 0 AND database_id = DB_ID() AND wait_time >= 30000) THEN 1 ELSE 0 END AS long_blocks, (SELECT COUNT(*) FROM sys.dm_exec_sessions WHERE is_user_process = 1 AND database_id = DB_ID()) AS sessions, SYSUTCDATETIME() AS read_at`
 
 Despite its name, that counter is cumulative. Never count `system_health` events instead: that
 buffer rolls over, so its count falls.
 
 ### PostgreSQL (one line, no semicolon)
-`SELECT (SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()) AS deadlocks_total, (SELECT count(DISTINCT l.pid) FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE NOT l.granted AND a.datname = current_database()) AS blocked_sessions, (SELECT COALESCE(round(sum(EXTRACT(EPOCH FROM now() - w.ws))::numeric, 1), 0) FROM (SELECT l.pid, min(l.waitstart) AS ws FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE NOT l.granted AND a.datname = current_database() GROUP BY l.pid) w) AS blocked_seconds, (SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE NOT l.granted AND a.datname = current_database() AND l.waitstart < now() - interval '30 seconds') THEN 1 ELSE 0 END) AS long_blocks, now() AS read_at`
+`SELECT (SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()) AS deadlocks_total, (SELECT count(DISTINCT l.pid) FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE NOT l.granted AND a.datname = current_database()) AS blocked_sessions, (SELECT COALESCE(round(sum(EXTRACT(EPOCH FROM now() - w.ws))::numeric, 1), 0) FROM (SELECT l.pid, min(l.waitstart) AS ws FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE NOT l.granted AND a.datname = current_database() GROUP BY l.pid) w) AS blocked_seconds, (SELECT CASE WHEN EXISTS (SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid WHERE NOT l.granted AND a.datname = current_database() AND l.waitstart < now() - interval '30 seconds') THEN 1 ELSE 0 END) AS long_blocks, (SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND backend_type = 'client backend') AS sessions, now() AS read_at`
 
 PostgreSQL 13 and older have no `pg_locks.waitstart`: use `a.query_start` in its place (in `blocked_seconds` and `long_blocks`), and
 say in `evidence` that blocked seconds count from the query's start.
 
 ### MySQL
-Both numbers are per server.
+The deadlock and blocking numbers are per server; `sessions` is this schema's. It needs the
+`PROCESS` right the bee's login has: without it MySQL shows only the bee's own session, so a
+`sessions` of 1 on a busy schema means the right is missing; say so in `evidence` and leave it out.
 
-`SELECT (SELECT SUM_ERROR_RAISED FROM performance_schema.events_errors_summary_global_by_error WHERE ERROR_NAME = 'ER_LOCK_DEADLOCK') AS deadlocks_total, (SELECT COUNT(*) FROM information_schema.INNODB_TRX WHERE trx_state = 'LOCK WAIT') AS blocked_sessions, (SELECT COALESCE(SUM(TIMESTAMPDIFF(SECOND, trx_wait_started, NOW())), 0) FROM information_schema.INNODB_TRX WHERE trx_state = 'LOCK WAIT') AS blocked_seconds, (SELECT CASE WHEN EXISTS (SELECT 1 FROM information_schema.INNODB_TRX WHERE trx_state = 'LOCK WAIT' AND trx_wait_started < NOW() - INTERVAL 30 SECOND) THEN 1 ELSE 0 END) AS long_blocks, UTC_TIMESTAMP() AS read_at`
+`SELECT (SELECT SUM_ERROR_RAISED FROM performance_schema.events_errors_summary_global_by_error WHERE ERROR_NAME = 'ER_LOCK_DEADLOCK') AS deadlocks_total, (SELECT COUNT(*) FROM information_schema.INNODB_TRX WHERE trx_state = 'LOCK WAIT') AS blocked_sessions, (SELECT COALESCE(SUM(TIMESTAMPDIFF(SECOND, trx_wait_started, NOW())), 0) FROM information_schema.INNODB_TRX WHERE trx_state = 'LOCK WAIT') AS blocked_seconds, (SELECT CASE WHEN EXISTS (SELECT 1 FROM information_schema.INNODB_TRX WHERE trx_state = 'LOCK WAIT' AND trx_wait_started < NOW() - INTERVAL 30 SECOND) THEN 1 ELSE 0 END) AS long_blocks, (SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE DB = DATABASE()) AS sessions, UTC_TIMESTAMP() AS read_at`
 
 ## 2. Blocking detail (only when blocked_sessions > 0)
 - **SQL Server:** `SELECT TOP 20 r.session_id, r.blocking_session_id, r.wait_type, r.wait_time / 1000 AS wait_s, r.wait_resource, LEFT(t.text, 200) AS statement, LEFT(bt.text, 200) AS blocker_statement FROM sys.dm_exec_requests r OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) t LEFT JOIN sys.dm_exec_connections bc ON bc.session_id = r.blocking_session_id OUTER APPLY sys.dm_exec_sql_text(bc.most_recent_sql_handle) bt WHERE r.blocking_session_id <> 0 AND r.database_id = DB_ID() ORDER BY r.wait_time DESC`

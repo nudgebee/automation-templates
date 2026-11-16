@@ -17,8 +17,8 @@ Send each query as ONE line, with no semicolon.
 | check | severity | unit |
 |---|---|---|
 | hygiene_monitoring_off | warning | settings |
-| hygiene_unused_index | info | objects |
-| hygiene_duplicate_index | warning | objects |
+| index_unused | info | objects |
+| index_duplicate | warning | objects |
 | hygiene_vacuum | warning | objects |
 | hygiene_stats | info | objects |
 | hygiene_xid_age | critical | databases |
@@ -31,21 +31,29 @@ Fix:
 - `CREATE EXTENSION pg_stat_statements` (it must also be in `shared_preload_libraries`);
 - set `log_lock_waits = on`. On RDS and Cloud SQL both go through the parameter group or flags.
 
-## hygiene_unused_index
+## index_unused
 - First:
   `SELECT EXTRACT(EPOCH FROM now() - COALESCE((SELECT stats_reset FROM pg_stat_database WHERE datname = current_database()), pg_postmaster_start_time()))::bigint AS stats_age_s`
   Below 1209600 (14 days), the statistics are too young: don't judge this check (it is not run).
-- Count: `SELECT count(*) AS n FROM pg_stat_user_indexes s JOIN pg_index i ON i.indexrelid = s.indexrelid WHERE s.idx_scan = 0 AND NOT i.indisunique AND NOT i.indisprimary AND pg_relation_size(s.indexrelid) > 1048576`
-- Detail: the same, selecting `s.schemaname, s.relname, s.indexrelname, pg_size_pretty(pg_relation_size(s.indexrelid)) AS size`, ordered by `pg_relation_size(s.indexrelid) DESC`, `LIMIT 20`.
+- Count: `SELECT count(*) AS n FROM pg_stat_user_indexes s JOIN pg_index i ON i.indexrelid = s.indexrelid WHERE s.idx_scan = 0 AND NOT i.indisunique AND NOT i.indisprimary AND pg_relation_size(s.indexrelid) > 1048576 AND s.schemaname NOT IN ('hdb_catalog') AND NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = i.indexrelid) AND NOT EXISTS (SELECT 1 FROM pg_constraint f WHERE f.contype = 'f' AND f.conrelid = i.indrelid AND (i.indkey::int2[])[0:array_length(f.conkey, 1) - 1] @> f.conkey) AND NOT EXISTS (SELECT 1 FROM pg_depend dep WHERE dep.classid = 'pg_class'::regclass AND dep.objid = i.indrelid AND dep.deptype = 'e')`
+- Detail: `SELECT s.schemaname, s.relname, s.indexrelname, pg_size_pretty(pg_relation_size(s.indexrelid)) AS size FROM pg_stat_user_indexes s JOIN pg_index i ON i.indexrelid = s.indexrelid WHERE s.idx_scan = 0 AND NOT i.indisunique AND NOT i.indisprimary AND pg_relation_size(s.indexrelid) > 1048576 AND s.schemaname NOT IN ('hdb_catalog') AND NOT EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = i.indexrelid) AND NOT EXISTS (SELECT 1 FROM pg_constraint f WHERE f.contype = 'f' AND f.conrelid = i.indrelid AND (i.indkey::int2[])[0:array_length(f.conkey, 1) - 1] @> f.conkey) AND NOT EXISTS (SELECT 1 FROM pg_depend dep WHERE dep.classid = 'pg_class'::regclass AND dep.objid = i.indrelid AND dep.deptype = 'e') ORDER BY pg_relation_size(s.indexrelid) DESC LIMIT 20`
+- Never listed: primary keys, unique indexes, indexes backing a constraint, an index whose
+  leading columns are a foreign key's columns (dropping it slows deletes and updates on the parent
+  table), extensions' tables and the `hdb_catalog` schema.
 
 Fix: check replicas too (the counters are per server), then `DROP INDEX CONCURRENTLY`.
 
-## hygiene_duplicate_index
-- Count: `SELECT count(*) AS n FROM (SELECT indrelid, indkey::text, indclass::text, indoption::text, coalesce(indexprs::text,''), coalesce(indpred::text,'') FROM pg_index GROUP BY 1,2,3,4,5,6 HAVING count(*) > 1) d`
-- Detail: `SELECT indrelid::regclass AS table_name, array_agg(indexrelid::regclass) AS indexes FROM pg_index GROUP BY indrelid, indkey::text, indclass::text, indoption::text, coalesce(indexprs::text,''), coalesce(indpred::text,'') HAVING count(*) > 1 LIMIT 20`
+## index_duplicate
+Indexes on the same table with the same columns, operator classes, order, expressions and
+predicate. In each group the query names the one to keep: a valid one first (a failed
+`CREATE INDEX CONCURRENTLY` leaves an invalid one), then the one backing a constraint, the primary
+key, a unique index, the most scanned, the oldest. An index backing a constraint (primary key,
+unique, exclusion, or the one a foreign key references) is never one to drop.
+- Count: `WITH ix AS (SELECT i.indexrelid, i.indrelid, i.indkey::text || ' ' || i.indclass::text || ' ' || i.indoption::text || ' ' || coalesce(i.indexprs::text, '') || ' ' || coalesce(i.indpred::text, '') AS sig, EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = i.indexrelid) AS backs_constraint, i.indisvalid, i.indisprimary, i.indisunique, coalesce(s.idx_scan, 0) AS scans FROM pg_index i JOIN pg_class t ON t.oid = i.indrelid JOIN pg_namespace n ON n.oid = t.relnamespace LEFT JOIN pg_stat_user_indexes s ON s.indexrelid = i.indexrelid WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'hdb_catalog') AND n.nspname NOT LIKE 'pg_toast%' AND NOT EXISTS (SELECT 1 FROM pg_depend dep WHERE dep.classid = 'pg_class'::regclass AND dep.objid = t.oid AND dep.deptype = 'e')), r AS (SELECT ix.*, row_number() OVER w AS rn, count(*) OVER (PARTITION BY indrelid, sig) AS cnt, first_value(indexrelid) OVER w AS keep FROM ix WINDOW w AS (PARTITION BY indrelid, sig ORDER BY indisvalid DESC, backs_constraint DESC, indisprimary DESC, indisunique DESC, scans DESC, indexrelid)) SELECT count(*) AS n FROM r WHERE cnt > 1 AND rn > 1 AND NOT backs_constraint`
+- Detail: `WITH ix AS (SELECT i.indexrelid, i.indrelid, i.indkey::text || ' ' || i.indclass::text || ' ' || i.indoption::text || ' ' || coalesce(i.indexprs::text, '') || ' ' || coalesce(i.indpred::text, '') AS sig, EXISTS (SELECT 1 FROM pg_constraint c WHERE c.conindid = i.indexrelid) AS backs_constraint, i.indisvalid, i.indisprimary, i.indisunique, coalesce(s.idx_scan, 0) AS scans FROM pg_index i JOIN pg_class t ON t.oid = i.indrelid JOIN pg_namespace n ON n.oid = t.relnamespace LEFT JOIN pg_stat_user_indexes s ON s.indexrelid = i.indexrelid WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'hdb_catalog') AND n.nspname NOT LIKE 'pg_toast%' AND NOT EXISTS (SELECT 1 FROM pg_depend dep WHERE dep.classid = 'pg_class'::regclass AND dep.objid = t.oid AND dep.deptype = 'e')), r AS (SELECT ix.*, row_number() OVER w AS rn, count(*) OVER (PARTITION BY indrelid, sig) AS cnt, first_value(indexrelid) OVER w AS keep FROM ix WINDOW w AS (PARTITION BY indrelid, sig ORDER BY indisvalid DESC, backs_constraint DESC, indisprimary DESC, indisunique DESC, scans DESC, indexrelid)) SELECT indrelid::regclass AS table_name, indexrelid::regclass AS drop_index, keep::regclass AS keep_index, scans, pg_size_pretty(pg_relation_size(indexrelid)) AS size FROM r WHERE cnt > 1 AND rn > 1 AND NOT backs_constraint ORDER BY pg_relation_size(indexrelid) DESC LIMIT 20`
+- `detail`: per row, "drop `drop_index` (duplicates `keep_index`)", with its scans and size.
 
-Fix: keep one of each group (prefer the one backing a constraint) and drop the others with
-`DROP INDEX CONCURRENTLY`.
+Fix: `DROP INDEX CONCURRENTLY <drop_index>`, for a person to run after checking replicas.
 
 ## hygiene_vacuum
 - Count: `SELECT count(*) AS n FROM pg_stat_user_tables WHERE n_dead_tup > 10000 AND n_dead_tup > 0.2 * GREATEST(n_live_tup, 1)`
