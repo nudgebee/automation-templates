@@ -1,0 +1,4 @@
+name: Performance sweep on one SQL Server database where a query became 40 times slower in the last 24 hours with a new plan, and the faster plan of the same query id used an index that no longer exists; the repo in repos has a migration that drops that index - query_regressed 1 and a query_regression note that names the dropped index and its table, advises recreating it, names the migration file that dropped it, and writes no sp_query_store_force_plan command; plan XML read only for the faster plan
+trigger: fixtures/performance-run.json
+expect:
+  verdict: checked
