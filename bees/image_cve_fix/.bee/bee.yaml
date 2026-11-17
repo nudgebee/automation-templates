@@ -1,7 +1,7 @@
 schema: bee/v1
 name: image_cve_fix                     # canonical: snake_case, fixed forever
 display_name: Image CVE Fix Bee
-version: 1.4.0
+version: 1.5.0
 description: Brings down fixable Critical and High CVEs on the images running in the namespaces you choose. For each image it finds the cheapest fix that works, scans a newer version before asking to upgrade, opens the pull request, and proves the result on the running image.
 author: { name: Nudgebee }
 
@@ -14,7 +14,7 @@ integrations:
     types: [github]
     access: write
     required: true
-    why: Opens the pull request for a fix. Asks every time.
+    why: Opens the pull request for a fix. Asks every time. For an image you build (the own_repos setting), the code agent opens it through your GitHub integration.
 
 settings:
   namespaces:
@@ -22,6 +22,11 @@ settings:
     title: Namespaces
     description: Comma-separated namespaces to work on. The bee refuses to run without them.
     required: true
+  own_repos:
+    type: string
+    title: Repositories that build your images
+    description: "Comma-separated `image prefix=owner/repo` pairs, e.g. `ghcr.io/acme/=acme/platform`. For an image under a listed prefix the bee asks the code agent to choose a fix and open one pull request in that repository; other images you build get a written next step."
+    required: false
 
 output:                                 # summary, evidence and runs are built in
   stage: { enum: [no_scope, nothing_open, working, unsure] }
@@ -84,4 +89,4 @@ budget:
   # Uncached input + output per run; input read from the prompt cache does not count.
   max_tokens_per_run: 400000
   max_runs_per_day: 2
-  timeout: 15m
+  timeout: 20m

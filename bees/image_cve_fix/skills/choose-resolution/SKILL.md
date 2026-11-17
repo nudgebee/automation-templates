@@ -43,6 +43,8 @@ Ask only with hard evidence, one of:
 Anything else, however likely it looks, is `own_fix` with "needs owner confirmation".
 
 ## 2. Is a dependency update already waiting? → `dependency_pr`
+An image under an `own_repos` prefix skips this step: its open updates go into step 4's findings, and
+the code agent leaves those packages alone.
 For a repository you own: `gh pr list -R <repo> --search "<package>" --json number,title,url`. Link
 an open update. Else, if a direct dependency has a fixed version, open a fix. A lockfile you can't
 change exactly goes in the plan with the command to run.
@@ -82,8 +84,8 @@ change exactly goes in the plan with the command to run.
 
 An upgrade whose scan didn't finish, or was never approved, stays `pending` with `next` saying why, never a pull request.
 
-## 4. Your own image → `own_fix`
-Before calling it `own_fix`, rule out two cheaper moves:
+## 4. Your own image → `image_fix` (or `own_fix`)
+Before anything else, rule out two cheaper moves:
 - **A newer release.** Find the image's project (the repository named by the image path, e.g.
   `ghcr.io/<owner>/<name>` → `<owner>/<name>`, or the workload's repository annotation) and read
   `gh api repos/<owner>/<repo>/releases --jq '.[0:5][] | [.tag_name, .published_at] | @tsv'`. A newer
@@ -94,10 +96,30 @@ Before calling it `own_fix`, rule out two cheaper moves:
   when the same repository has newer builds, is "deploy the newer build", not "rebuild" (state
   `own_fix`, with that as `next`).
 
-Only then a plan entry naming the move: rebuild, change the base, remove a package, or retire it.
-Split the findings by operating system and application package, and say which move clears how many.
-Run find-deploy-source on its workload too: a rebuilt image still needs a way into the cluster. When
-no repository deploys it, the finding says so (How to answer).
+Then, when the `own_repos` setting maps the image to a repository (`<image prefix>=<owner>/<repo>`,
+longest prefix wins), the image is `image_fix`: step 7 hands it to `open_image_fix_pr`, one image per
+run. Gather its findings only for that image, when it goes deep. The code agent chooses the fix, so give
+it facts, not a recipe (no "Fix:" line: a suggested fix narrows what it looks at) — `findings` is
+markdown with:
+- the fixable Critical and High rows for the running tag: CVE, package, installed, fixed, severity;
+- for each package, where it comes from, as far as you can tell from the repository (read files with
+  `gh api repos/<repo>/contents/<path>`): the project's own manifest and the version it pins there
+  (`go.mod`, `pyproject.toml`/`uv.lock`, `package.json`, `requirements*.txt`); a tool the image's
+  Dockerfile installs or builds (name and pinned version), when the package isn't in the project's
+  manifests at that version; an OS package from the base image or the Dockerfile's package step;
+- what you already checked and found (e.g. "go.mod already pins the fixed version, so the vulnerable
+  copy is in a bundled tool"), and upstream status you read (the tool's newest release and the
+  version of the package it pins);
+- a Dependabot or other open pull request that already raises the package (`gh pr list --repo <repo>
+  --state open --search <package>`): name it, and leave that package out of the ask.
+Say "unknown" rather than guess. The findings are copied into the pull request, so name images by the
+last part of their path and leave out registry hosts, cluster, namespace and workload names. An image
+no `own_repos` entry maps stays `own_fix`: a plan entry
+naming the move (rebuild, change the base, remove a package, or retire it), with the OS and application
+packages counted apart.
+
+Run find-deploy-source on its workload too: a fixed image still needs a way into the cluster. When no
+repository deploys it, the finding says so (How to answer).
 
 ## 5. A dead line → `replace`
 The project is archived, unmaintained, or the distribution is out of support. A plan entry with a

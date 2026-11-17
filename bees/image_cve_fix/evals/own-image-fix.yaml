@@ -1,0 +1,5 @@
+name: An image the team builds, mapped by own_repos, has fixable High CVEs and no newer release or build
+trigger: fixtures/manual-run.json
+expect:
+  verdict: none
+  runs: [open_image_fix_pr]
