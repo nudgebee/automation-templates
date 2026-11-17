@@ -24,8 +24,12 @@ Use those values only. The production namespaces are `prod_namespaces`, or every
 is installed on when it is empty.
 
 The period is the `report_days` days before this run started (UTC), every run. Weekly runs then
-cover back-to-back weeks, and a run by hand never shifts them. Last period's numbers are the last
-comment's; name the period they cover, and when it differs from this one (a run by hand), say so and
+cover back-to-back weeks, and a run by hand never shifts them. A comment's first line says which
+kind of run wrote it: `## DORA Metrics Report: weekly (<start> to <end> UTC)` for a scheduled run,
+`## DORA Metrics Report: by hand (<start> to <end> UTC)` for a run someone started (its message
+says it was started by hand). Last period's numbers are the last report a run by hand didn't write
+(step 1), so a run by hand in between never stops the week-over-week change. Name the period they cover; when it is not the
+`report_days` just before this one (a weekly run was missed, or this run is by hand), say so and
 don't work out a change.
 
 ## Reading cheaply
@@ -41,8 +45,15 @@ that don't depend on each other in the same turn.
      - GitHub: `gh issue list -R <tracker_project> --state open --search "DORA: <account name> in:title" --json number,title,url`;
      - GitLab: `glab issue list -R <tracker_project> --search "DORA: <account name>"`;
      - Jira: `ticket_master_v2` `list_tickets`, then match the title.
-   - Read only its last comment (GitHub: `gh issue view <n> -R <tracker_project> --json comments --jq '.comments[-1].body'`):
-     that is last period's numbers.
+   - Read only its last report that a run by hand didn't write: that is last period's numbers. One
+     read keeps report comments (people's comments on the issue are left out) and drops the by-hand
+     ones, so reports from before 0.3.0, which have no `weekly` in their first line, still count:
+     - GitHub: `gh issue view <n> -R <tracker_project> --json comments --jq '[.comments[].body | select(test("^#+ *DORA Metrics Report"; "i")) | select(test("^#+ *DORA Metrics Report: *by hand"; "i") | not)] | last // empty'`;
+     - GitLab: `glab api "projects/<url-encoded tracker_project>/issues/<n>/notes?sort=desc&order_by=created_at&per_page=50" | jq -r '[.[].body | select(test("^#+ *DORA Metrics Report"; "i")) | select(test("^#+ *DORA Metrics Report: *by hand"; "i") | not)] | first // empty'`;
+     - Jira: `ticket_master_v2` `get_comments`, then take the last comment that starts with
+       `## DORA Metrics Report` and doesn't say `by hand`.
+
+     An empty answer means there is no earlier report: no last period.
    - If you can't search or read the tracker, stop with that as the reason. Never open a report you
      couldn't look for first: that would open a duplicate every run.
 2. **No issue yet?** Run `open_report` with title `DORA: <account name>` and a description that
@@ -53,16 +64,20 @@ that don't depend on each other in the same turn.
 6. **Write it down.** Run `update_report` once, on the issue's number. If `open_report` came back
    waiting for approval, the issue doesn't exist yet: skip this step, and the next run comments.
    The comment holds:
-   - the period, in UTC;
-   - a table of the four metrics: this period, last period, and the change;
+   - the first line above, with the period in UTC;
+   - a table of the four metrics, named as they are measured: Deployment Frequency, Lead Time for
+     Changes, Change Failure Rate (of changes), Time to Restore (all HIGH alerts); this period, last
+     period, and the change;
    - deploys per namespace, and the 10 workloads that deployed most;
    - the failed changes (workload, change time, failure start), at most 20;
    - the failures (the 10 workloads with most, with an example alert and how many are not restored);
    - what could not be read and why;
    - one line on the method: a deploy is a new image per workload (one build on two workloads is two
      deploys); a change is any recorded spec change; a failure is one HIGH alert, not an incident,
-     and the alerts `failure_exclude` leaves out; lead time runs from a change's first commit, over
-     the latest deploys.
+     and the alerts `failure_exclude` leaves out; time to restore covers every such failure, not
+     only those a deploy caused, so it is not DORA's failed deployment recovery time; lead time runs
+     from a change's first commit, over the latest commit-tagged deploy of each workload (at most
+     20).
 
 Deployment frequency is deploys per day over the period, with the count next to it.
 
@@ -95,7 +110,7 @@ required (`findings` may be empty):
  "checked": [{"target": "production", "check": "deployment_frequency"}, {"target": "production", "check": "lead_time"},
    {"target": "production", "check": "change_failure_rate"}, {"target": "production", "check": "time_to_restore"}],
  "findings": [{"target": "production", "check": "lead_time", "severity": "info",
-   "title": "Lead time from 6 of the latest 10 deploys", "detail": "4 image tags name no commit (1.31.1, ...)", "value": 6, "unit": "deploys"}],
+   "title": "Lead time from 3 workloads' latest deploys", "detail": "the other workloads' image tags name no commit (1.31.1, ...)", "value": 3, "unit": "deploys"}],
  "metrics": [
    {"target": "production", "metric": "deploy_frequency_per_day", "value": 30.29},
    {"target": "production", "metric": "lead_time_hours", "value": 1.4},
@@ -119,6 +134,6 @@ required (`findings` may be empty):
   subject): add up before you write it.
 - `findings`, besides the not-available ones: a caveat on a metric that has a number, when it rests
   on part of the data: deploys that are a lower bound ("at least") or per-workload rows the tool cut
-  short, lead time from fewer than the 10 latest deploys, failed changes cut at 3 pages, a namespace
+  short, lead time from fewer than 5 workloads' deploys, failed changes cut at 3 pages, a namespace
   with no change history. `check` is the metric; severity `warning` when the number may be far off,
   else `info`. No caveat, no finding.
