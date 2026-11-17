@@ -1,9 +1,11 @@
-# Once a day the bee picks up where its plan (kept by the platform) left off and does the next step.
+# Twice a day the bee picks up where its plan (kept by the platform) left off and does the next step:
+# the afternoon run picks up what people approved since the morning one (a pull request opened, a scan
+# that came back) and asks for the next fix the same day.
 # A person can also start it by hand. It never waits inside a run.
 triggers:
   - type: schedule
     params:
-      cron: "0 6 * * *"
-      evidence: "Daily image CVE check."
+      cron: "0 6,14 * * *"
+      evidence: "Image CVE check."
     dedupe: "daily"
-    window: 12h
+    window: 7h
