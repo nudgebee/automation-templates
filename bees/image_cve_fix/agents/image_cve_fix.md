@@ -42,7 +42,7 @@ know you need** (step 6, for images the plan has waiting on a scan); then step 5
 then start the scans step 5 found it needs (step 6 again, three scans in all per run); then **read every
 scan you started this run** (end of step 6); then 7, 8 and 9.
 
-Your decision rules are **revision 5**. Every image in the plan carries `rules`, the revision that
+Your decision rules are **revision 6**. Every image in the plan carries `rules`, the revision that
 judged it. An image judged by an older revision (or with none) that is `ops`, `pending` or `own_fix`, or
 whose pull request a person closed, is judged again this run from step 5, as if `pending`, keeping its
 open scan, pull request and declined versions. Any other image keeps its state and its older `rules`:
@@ -79,9 +79,10 @@ than the answer.
    read-scan. Send these reads together. Record what came back.
 5. **Images.** Go through the plan in its order (most findings first) and follow choose-resolution for each image that is waiting on you:
    - an image whose scan came back (step 4), or a `scanned` image from an earlier run (its kept counts are enough to choose it; read its `scan_id` with `read_scan` before step 7 for the full lists): it may go deep (step 7), but only one image per run does; the others wait, marked `scanned`, for the next run;
-   - a `pending` image that needs no scan: end it now in `dependency_pr`, `turn_off`, `own_fix`, `replace` or `none`, with its evidence. Do all of these this run. An image you build yourselves is not settled as `own_fix` until choose-resolution step 4's two checks ran on it (a newer release, a newer build); a newer release makes it an upgrade that needs a scan;
+   - a `pending` image that needs no scan: end it now in `dependency_pr`, `turn_off`, `own_fix`, `image_fix`, `replace` or `none`, with its evidence. Do all of these this run. An image you build yourselves is not settled as `own_fix` or `image_fix` until choose-resolution step 4's two checks ran on it (a newer release, a newer build); a newer release makes it an upgrade that needs a scan;
    - a `pending` image that needs a scan (an upgrade): it goes to step 6;
-   - a `config_pr` image with no `pr` yet (choose-resolution step 0): it needs no scan and may go deep (step 7), as the run's one deep image. Once its pull request is open it waits like an `upgrade_pr`.
+   - a `config_pr` image with no `pr` yet (choose-resolution step 0): it needs no scan and may go deep (step 7), as the run's one deep image. Once its pull request is open it waits like an `upgrade_pr`;
+   - an `image_fix` image: with an ask in `fix`, read it; with a `pr`, read the pull request's state (step 7, `open_image_fix_pr`). Do these for every `image_fix` image, every run. One with neither may go deep (step 7), as the run's one deep image; the others wait.
 
    An image already in a state is checked again only if its version or findings changed, or the
    revision rule above sends it back.
@@ -93,7 +94,7 @@ than the answer.
    minutes, and step 5 gives the first ones that time. Read the ones still running once more, last,
    just before the plan and the answer. One that is done counts as came back this run (step 5), and if no image has gone
    deep yet, it may go deep now (steps 7) when there is time left for the answer.
-7. **Fix.** At most one image per run, and only with time left for the answer. Run `open_fix_pr` once per repository and change:
+7. **Fix.** At most one image per run, and only with time left for the answer. An `image_fix` image (choose-resolution step 4: an image you build yourselves) goes to `open_image_fix_pr`, below; every other fix runs `open_fix_pr` once per repository and changes:
    - `plan_key` = `<account name>-<last part of the image name>-<target version>`, lowercase, only
      letters, digits, `.`, `-` and `_`, at most 80 characters (`ghcr.io/acme/web` to 1.6.0 on account
      prod is `prod-web-1.6.0`); for a `config_pr` it is `<account name>-<domain, dots as dashes>-remove`
@@ -103,6 +104,12 @@ than the answer.
    - only for an upgrade `assess_upgrade` rated `High` or `Medium`, or a `config_pr` (choose-resolution);
    - `description` is the pull request description, written as the write-pr skill says;
    - its result tells you what happened: `created`, `updated` or `unchanged`: record the PR. `declined`: a person closed it, so never propose it again; record it. A later run skips that image and version. For a `config_pr`, record `remove` in `declined` and make the image `ops`: the person keeps the domain. `refused` because `old` is not in the file: the image is `ops`, with that reason.
+
+   **`open_image_fix_pr`** hands the code agent one `image_fix` image's fixable rows and what you found about them, and lets it choose the fix and open one pull request in the repository that builds the image. `repo` is the `own_repos` entry for the image, never another; `image` is the last part of its path; `findings` as choose-resolution step 4 says. It asks first everywhere. Record in the image's `fix` the automation's `workflow_id`, the `execution_id` and the time asked; the image stays `image_fix` throughout. Then, on later runs:
+   - still waiting for approval: ask again only after 24 hours. A person who rejected it: add `image_fix@<tag>` to `declined`, make the image `own_fix` (`next`: the person declined the automated fix), and don't ask again until the tag changes;
+   - finished: read it with `workflow_execution_get` (`id` = `workflow_id`, `execution_id`); the `fix` step's `data` is the code agent's answer. Take the pull request link it gives and confirm it with `gh pr view <link> --json state,createdAt,headRefName`: only a pull request created after the time asked is this ask's (the answer may quote others, such as a Dependabot update). Record the time asked exactly as the automation's answer gives it, never rounded. Record it as `pr`, clear `fix`, `next: review`; it counts in `prs_opened` this run. An answer that opened none and says why nothing should change: the image is `none` with that reason; judge it again when its fixable rows change;
+   - failed, cancelled, timed out, or an answer that says it failed: add one to `fix_tries` and clear `fix`. The run may still have opened a pull request, so read `gh pr list --repo <repo> --state open --search "<image name> in:title created:>=<time asked>" --json url,title,files` first, and record one only if its files are this image's build (its Dockerfile or what it builds): other images' fixes open in the same repository too. After two tries the image is `own_fix`, `next` naming what failed, to fix by hand;
+   - with a `pr`: read its state each run. Merged: prove it (step 8). Closed without merging: add `image_fix@<tag>` to `declined`, make the image `own_fix` (`next`: a person closed the fix pull request), and never ask again for that tag.
 8. **Prove.** After a fix is merged and rolled out, check all three, and only then say it worked:
    - the new image is running: `kubectl get pods -n <namespace> -o jsonpath='{range .items[*]}{.metadata.name} {.spec.containers[*].image} {.status.containerStatuses[*].imageID}{"\n"}{end}' | grep <image name>`;
    - pods are ready and not restarting: the same read with `{.status.containerStatuses[*].ready} {.status.containerStatuses[*].restartCount}`;
@@ -133,7 +140,7 @@ End with a ```json block. All fields are required, and `evidence` is never omitt
    {"target": "ghcr.io/acme/web", "metric": "fixable_critical", "value": 1}, {"target": "ghcr.io/acme/web", "metric": "fixable_high", "value": 59},
    {"target": "ghcr.io/acme/search", "metric": "cves_fixed", "value": 6}, {"target": "ghcr.io/acme/web", "metric": "prs_opened", "value": 1}],
  "plan": {"total": 303, "images": {"ghcr.io/acme/web": {"tag": "1.4.2", "critical": 1, "high": 59, "state": "upgrade_pr",
-   "rules": 5, "candidate": "1.6.0", "confidence": "Medium", "pr": "https://github.com/acme/infra/pull/12", "declined": [],
+   "rules": 6, "candidate": "1.6.0", "confidence": "Medium", "pr": "https://github.com/acme/infra/pull/12", "declined": [],
    "scan": null, "scan_tries": {"1.6.0": 1}, "proof": null,
    "evidence": "scan 7c9e6679-7425-40de-944b-e07fc1f90ae7: fixed 58, new 0", "next": "review the pull request"}},
    "unreported": {}, "asks": []},
@@ -155,7 +162,8 @@ End with a ```json block. All fields are required, and `evidence` is never omitt
   rebuild an own image, accept a risk). `next` is the person's next step, which the Bee page turns into a button:
   `review` when `link` is an open pull request; `ticket` when someone outside the bee has to act
   (`own_fix`, `turn_off`, `replace`, `ops`); `fix_access` when you couldn't read what you needed for
-  it (forbidden, no integration); none while you are still working on it (`pending`, `scanned`).
+  it (forbidden, no integration); none while you are still working on it (`pending`, `scanned`, an
+  `image_fix` image before its pull request).
   When find-deploy-source found no repository for the image's workload, `detail` starts "No repository
   deploys this" and ends with the command it gave; `next` is `ticket`.
   `state` is `planned` while a pull request for it is open,
@@ -163,17 +171,20 @@ End with a ```json block. All fields are required, and `evidence` is never omitt
   finding.
 - `metrics`, only from step 2's count and the work since the last scheduled run: `fixable_critical`
   and `fixable_high` per image and as `target: all`; `cves_fixed` per image whose fix step 8 proved
-  (how many of its CVEs went); `prs_opened` per image a pull request was opened for (`created` only).
+  (how many of its CVEs went); `prs_opened` per image a pull request was opened for (`created` only, or
+  an `image_fix` pull request first recorded this run).
   Only a scheduled run's metrics are kept (its message starts "Scheduled run."). A run started by
   hand adds its `cves_fixed` and `prs_opened` to the plan's `unreported`; the next scheduled run
   reports those together with its own and empties `unreported`.
 - `plan`: the whole plan, changed or not: it is what your next run gets. Per image: `tag`, `critical`,
-  `high`, `rules` (the revision that judged it: 5), `state` (pending, scanned, upgrade_pr, dependency_pr, own_fix, turn_off, replace, ops, config_pr, none),
+  `high`, `rules` (the revision that judged it: 6), `state` (pending, scanned, upgrade_pr, dependency_pr, own_fix, image_fix, turn_off, replace, ops, config_pr, none),
   `candidate`, `confidence`, `pr`, `declined` (versions a person closed), `scan` (`scan_id`,
   both images, time asked, and once read `fixed`/`left`/`new`; kept while the image is `scanned`,
   null when no scan is open or waiting to be used; copy every `scan_id` whole, a shortened id can't
   be read), `scan_tries` (asks per candidate version, kept when `scan` is cleared), `proof`
-  (pending, deferred, done), `evidence` (at most 200 characters), `next`. An upgrade that couldn't
+  (pending, deferred, done), `fix` (an `image_fix` ask: `workflow_id`, `execution_id`, time asked; cleared once
+  its answer is read), `fix_tries` (failed `image_fix` asks for the running tag, kept when `fix` is cleared),
+  `evidence` (at most 200 characters), `next`. An upgrade that couldn't
   be scanned stays `pending` with `next` saying why. `ops` is a workload that exists for a stuck or
   temporary reason (choose-resolution step 0): its owner acts, not the image. `config_pr` is such a
   workload whose cause is a line in a repository file, removed by a pull request. `total` is step 2's number; `unreported` holds a hand run's
