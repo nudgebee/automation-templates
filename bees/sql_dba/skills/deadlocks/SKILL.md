@@ -11,7 +11,7 @@ and never decide that something repeats.
 The run message has a `<bee_metrics>` block. Per database it gives:
 - the last deadlocks sweep's `deadlocks_total` (SQL Server: `deadlocks_server_total`) as read, and
   that sweep's time: **since**;
-- the subjects that already have a note.
+- the subjects that already have a note, with the code each note names (after `code:`).
 
 **until** is this sweep's time when `<bee_metrics>` gives it, else the `read_at` of the gate query.
 Windows are `since <= t < until`, in UTC.
@@ -212,24 +212,34 @@ The logs or `system_health` were read but hold none of this database's deadlocks
 kept): report `{target, metric: deadlock_events, subject: "", value: 0}` and say so in
 `evidence`.
 
-## 5. The code behind a new subject
-Only for a subject that is NOT listed with a note in `<bee_metrics>`, and once per subject. A
-subject with a note is done: don't trace it again, even if it recurs.
-1. **The app's error line.** `logs_execute_v2`, two minutes either side of one occurrence: the
-   driver's deadlock error (`deadlock detected`, `40P01`, `Deadlock found when trying to get
-   lock`, `1213`, `was deadlocked on lock resources`, `1205`). Take the file:line or function from
-   it or its stack.
-2. **Traces.** `traces_execute`, five minutes either side: spans whose `db.statement` names the
-   subject's tables, grouped by service and span name. That gives the service and the endpoint.
-3. **The code.** When step 1 gave a file and `repos` is set, read it from each repo in turn until
-   one has it: `github_execute` `gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d`.
-   Read only; quote the few lines around the statement.
-   When step 1 gave no file (no error line was logged, or it had no stack) and `repos` is set,
-   search for each statement instead, each repo in turn until one has it:
-   `gh search code "<a distinctive fragment of the statement>" --repo <owner/name> --limit 5 --json path,url`
-   (the fragment as code would write it: the verb, the table and a column, never a value), then
-   read the few lines around it as above. One search per statement.
-4. **Nothing found:** the note names the service and endpoint from step 2, or says "code not found".
+## 5. The code behind a subject
+For a subject that is NOT listed with a note in `<bee_metrics>`, once per subject. A subject
+listed with a note is done, even if it recurs, except when its note names no file (its `code:` is
+`none`, "code not found", or only a service and endpoint) and its age is shown in days ("1 days" or
+more): trace it once more, and write its note again whether or not you find the file, so its age
+restarts.
+1. **The app's error line.** `logs_execute_v2`, two minutes either side of one occurrence
+   (`start_time`, `end_time`), for the driver's deadlock error: SQL Server `was deadlocked on lock
+   resources`, PostgreSQL `deadlock detected`, MySQL `Deadlock found when trying to get lock`. Its
+   `command` is a JSON filter, never LogQL or an Elasticsearch query:
+   `{"where": {"message": {"_ilike": "%was deadlocked on lock resources%"}}, "limit": 20}`.
+   Take the file:line or function from the line or its stack.
+2. **Traces.** `traces_execute`, five minutes either side, SQL on `traces_view`. A database span's
+   statement is in `endpoint` (there is no `db_statement` column):
+   `SELECT service_name, endpoint, count(*) AS n FROM traces_view WHERE timestamp >= parseDateTimeBestEffort('<from>') AND timestamp < parseDateTimeBestEffort('<to>') AND endpoint ILIKE '%<table>%' GROUP BY service_name, endpoint ORDER BY n DESC LIMIT 20`.
+   That gives the service, and the endpoint when the app's HTTP spans share the trace.
+3. **The code**, whenever `repos` is set, whatever steps 1 and 2 returned: a line or span, nothing,
+   or an error. A logs or traces tool that fails is not a reason to skip this step.
+   - Step 1 gave a file: read it from each repo in turn until one has it:
+     `github_execute` `gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d`.
+     Read only; quote the few lines around the statement.
+   - Otherwise search for each statement, each repo in turn until one has it:
+     `gh search code "<a distinctive fragment of the statement>" --repo <owner/name> --limit 5 --json path,url`
+     (the fragment as code would write it: the verb, the table and a column, never a value), then
+     read the few lines around it as above. One search per statement.
+4. **Nothing found**, only after step 3 ran in every repo (or `repos` is not set): the note names
+   the service and endpoint from step 2, or says "code not found". Say in `evidence` what each
+   search returned.
 
 Then write the note `{target, check: deadlock_repeat, subject, detail, code, fix, links}`:
 - `detail`: both statements, the tables and indexes, the lock each held and waited for, and the

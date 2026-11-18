@@ -134,18 +134,22 @@ indexes query in 2); everything else is plan ids, plan hashes and numbers.
      - `table_exists` 0: the table is gone, renamed, or the login can't see it. Say which can't be
        told apart; don't advise recreating anything, and don't offer that plan to force.
      - No rows: the plan read no index of this database, or its XML is too deep to read.
-3. **The code** (until one step answers):
+3. **The code.** A tool that fails or returns nothing has not answered: go on to the next one.
    - `module` from 1 is a procedure: that is the code in the database; also look for its name in
      `repos` (below) to find the caller.
-   - `traces_execute`, the last 24 hours: spans whose `db.statement` names the query's main table
-     and a distinctive part of its text, grouped by service and span name. That gives the service
-     and the endpoint.
-   - `github_execute`, each repo in `repos` in turn until one has it:
+   - `traces_execute`, the last 24 hours, SQL on `traces_view`: a database span's statement is in
+     `endpoint` (there is no `db_statement` column). Spans whose `endpoint` matches (`ILIKE`) the
+     query's main table and a distinctive part of its text, grouped by `service_name` and
+     `endpoint`. That gives the service and the endpoint.
+   - `github_execute`, whenever `repos` is set, even when traces gave the service and endpoint
+     (they don't give the file), each repo in turn until one has it:
      `gh search code "<a distinctive fragment of the text or the procedure name>" --repo <owner/name> --limit 5 --json path,url`,
      then read the few lines around it (`gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d`).
    - An index is gone: also search each repo for its name (without brackets), to find the
      migration or change that dropped it.
-   - Nothing found: the note names the service and endpoint, or says "code not found".
+   - Nothing found, only after the search ran in every repo (or `repos` is not set): the note
+     names the service and endpoint, or says "code not found". Say in `evidence` what each search
+     returned.
 
 Write `{target, check: query_regression, subject: <hash>, detail, code, fix, links}`:
 - `detail`: the text (as read, cut); before and after, executions and average ms per window and
