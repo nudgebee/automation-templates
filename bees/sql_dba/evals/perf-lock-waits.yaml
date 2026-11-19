@@ -1,0 +1,4 @@
+name: Performance sweep on one SQL Server 2025 database with wait capture ON, where Query Store's last 24 hours hold 274000 seconds of Lock waits, 99.9% of the database's waits, and the lock-wait query returns severity critical; the top lock-wait query is an UPDATE of customer_credit averaging 5578 ms for 0.16 ms of CPU - one perf_lock_waits finding, critical, next ticket, value the lock wait seconds as read, unit seconds, detail listing the five queries as read and pointing to Deadlock repeats and Blocking repeats as the cause; perf_lock_waits in checked
+trigger: fixtures/performance-run.json
+expect:
+  verdict: checked
