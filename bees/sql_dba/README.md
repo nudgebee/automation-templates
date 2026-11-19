@@ -16,6 +16,10 @@ What changed since v0.4:
   (SQL Server 2019 and later name them), the table's size and its writes since the server started.
   Every advice is marked unverified: it is SQL Server's own estimate, and an index can't be tested
   without creating it. Commands are written for a person, never run.
+- **The code behind a note** (0.5.8): a note never says it searched a repo it did not search in
+  that run. Without GitHub access on the install it says `code not looked up (no GitHub access)`,
+  and a deadlock note that says so is traced again a day later, like one that says "code not
+  found".
 - **Index advice, PostgreSQL** (`index_advice`, daily hygiene, 0.5.7): the large tables queries
   read whole again and again (`pg_stat_user_tables`), each with the `pg_stat_statements`
   statements that took the most time on it and its existing indexes, and one advice per table

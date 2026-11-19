@@ -165,8 +165,9 @@ indexes query in 2); everything else is plan ids, plan hashes and numbers.
 3. **The code.** A tool that fails or returns nothing has not answered: go on to the next one.
    - `module` from 1 is a procedure: that is the code in the database; also search for its name
      in `repos` (below) to find the caller.
-   - `github_execute`, first, whenever `repos` is set. Not optional: a note written without it is
-     wrong. Each repo in turn until one has it:
+   - `github_execute`, first, whenever `repos` is set and `github_execute` is one of your tools.
+     Not optional: a note written without it is wrong. Without the tool, the install gives this
+     bee no GitHub access: go on to `traces_execute`. Each repo in turn until one has it:
      `gh search code "<a distinctive fragment of the text or the procedure name>" --repo <owner/name> --limit 5 --json path,url`,
      then read the few lines around it (`gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d`).
    - An index is gone: also search each repo for its name (without brackets), to find the
@@ -177,8 +178,11 @@ indexes query in 2); everything else is plan ids, plan hashes and numbers.
      part of its text, grouped by `service_name` and `endpoint`. That gives the service and the
      endpoint.
    - Nothing found: the note names the service and endpoint, or says "code not found", and ends
-     with the repos searched: `code not found (searched acme/orders-api)`; with `repos` not set,
-     `code not found (repos not set)`. Say in `evidence` what each search returned.
+     with the repos whose `gh search code` ran without an error in this run: `code not found
+     (searched acme/orders-api)`. Never name a repo you did not search in this run. With `repos` not set,
+     `code not found (repos not set)`; without `github_execute`, `code not looked up (no GitHub
+     access)`. Say in `evidence` what each search returned, or that `github_execute` was not one
+     of your tools.
 
 Write `{target, check: query_regression, subject: <hash>, detail, code, fix, links}`:
 - `detail`: the text (as read, cut); before and after, executions and average ms per window and
@@ -206,7 +210,7 @@ Write `{target, check: query_regression, subject: <hash>, detail, code, fix, lin
     instead: statistics updated or stale on its tables, a jump in executions, rows or reads per
     call, or blocking (the deadlocks sweep's blocking notes on this database).
 - `code`: `owner/name path:line` from the search, the procedure, or what "Nothing found" says
-  (always with the repos searched).
+  (with the repos searched in this run, or why none was).
 - `links`: the repo file URL, and any event from the event check.
 
 If the run is near its end (about 35 turns used), stop writing notes and answer: the numbers
