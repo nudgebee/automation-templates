@@ -16,6 +16,9 @@ What changed since v0.4:
   (SQL Server 2019 and later name them), the table's size and its writes since the server started.
   Every advice is marked unverified: it is SQL Server's own estimate, and an index can't be tested
   without creating it. Commands are written for a person, never run.
+- **Lock waits, SQL Server** (`perf_lock_waits`, daily performance, 0.5.6): how much of the last
+  24 hours' Query Store wait time was lock waits, with the severity decided by the query, and the
+  five queries that waited longest.
 - **Duplicate and unused indexes, every engine** (`index_duplicate`, `index_unused`): an index
   backing a primary key or unique constraint, or one a foreign key references, is never one to drop,
   and each duplicate names the index to keep. Unused leaves out unique indexes and indexes on a
