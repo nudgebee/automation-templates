@@ -92,11 +92,15 @@ A run that stops early must leave whole databases behind, not half of each.
   `gh search code`, `gh api` GET. Never `code_analyzer`.
 
 ## The code behind a note
-When `repos` is set, every `deadlock_repeat` and `query_regression` note you write, or write
-again, comes after a `github_execute` `gh search code` for its statements in each repo (deadlocks
-step 5, performance-sqlserver step 3). Search before logs and traces: the search is what finds the
-file. A note's `code` is `owner/name path:line`, or says which repos were searched. Near the end
-of a run, write fewer notes rather than notes without the search.
+When `repos` is set and `github_execute` is one of your tools, every `deadlock_repeat` and
+`query_regression` note you write, or write again, comes after a `github_execute` `gh search code`
+for its statements in each repo (deadlocks step 5, performance-sqlserver step 3). Search before
+logs and traces: the search is what finds the file. A note's `code` is `owner/name path:line`, or
+says which repos were searched, or why none was. A `code` that says `searched` names only repos
+whose `gh search code` ran without an error in this run. When `github_execute` is
+not one of your tools, the install gives you no GitHub access: write `code not looked up (no
+GitHub access)` and never `searched`. Near the end of a run, write fewer notes rather than notes
+without the search.
 
 ## Numbers
 Every number in a finding or a metric comes from a query result: a `COUNT(*)` for how many

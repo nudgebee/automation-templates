@@ -215,11 +215,13 @@ kept): report `{target, metric: deadlock_events, subject: "", value: 0}` and say
 ## 5. The code behind a subject
 For a subject that is NOT listed with a note in `<bee_metrics>`, once per subject. A subject
 listed with a note is done, even if it recurs, except when its note names no file (its `code:` is
-`none`, "code not found", or only a service and endpoint) and its age is shown in days ("1 days" or
-more): trace it once more, and write its note again whether or not you find the file, so its age
-restarts.
-1. **Search the repos**, first, whenever `repos` is set. This step is not optional: a note
-   written without it is wrong, even when logs or traces would have answered. For each statement
+`none`, "code not found", "code not looked up", or only a service and endpoint) and its age is
+shown in days ("1 days" or more): trace it once more, and write its note again whether or not you
+find the file, so its age restarts.
+1. **Search the repos**, first, whenever `repos` is set and `github_execute` is one of your tools.
+   This step is not optional: a note written without it is wrong, even when logs or traces would
+   have answered. `github_execute` missing from your tools means the install gives this bee no
+   GitHub access: skip this step and go on to step 2. For each statement
    of the pattern, each repo in turn until one has it:
    `github_execute` `gh search code "<a distinctive fragment of the statement>" --repo <owner/name> --limit 5 --json path,url`
    (the fragment as code would write it: the verb, the table and a column, never a value). Then
@@ -232,22 +234,26 @@ restarts.
    `was deadlocked on lock resources`, PostgreSQL `deadlock detected`, MySQL `Deadlock found when
    trying to get lock`. Its `command` is a JSON filter, never LogQL or an Elasticsearch query:
    `{"where": {"message": {"_ilike": "%was deadlocked on lock resources%"}}, "limit": 20}`.
-   A file:line or function in the line or its stack: read it from the repos as in step 1.
+   A file:line or function in the line or its stack: read it from the repos as in step 1
+   (without `github_execute`, give the file:line as the log has it).
 3. **Traces**, only when steps 1 and 2 found no file. `traces_execute`, five minutes either side,
    SQL on `traces_view`. A database span's statement is in `endpoint` (there is no `db_statement`
    column):
    `SELECT service_name, endpoint, count(*) AS n FROM traces_view WHERE timestamp >= parseDateTimeBestEffort('<from>') AND timestamp < parseDateTimeBestEffort('<to>') AND endpoint ILIKE '%<table>%' GROUP BY service_name, endpoint ORDER BY n DESC LIMIT 20`.
    That gives the service, and the endpoint when the app's HTTP spans share the trace.
 4. **Nothing found:** the note's `code` names the service and endpoint from step 3, or says
-   "code not found", and in both cases ends with the repos step 1 searched:
-   `code not found (searched acme/orders-api, acme/billing)`. With `repos` not set:
-   `code not found (repos not set)`. Say in `evidence` what each search returned.
+   "code not found", and in both cases ends with the repos whose `gh search code` ran without an
+   error in this run: `code not found (searched acme/orders-api, acme/billing)`. Never name a repo
+   you did not search in this run. With `repos` not set: `code not found (repos not set)`. Without
+   `github_execute`: `code not looked up (no GitHub access)`, after the service and endpoint when
+   step 3 found them. Say in `evidence` what each search returned, or that `github_execute` was
+   not one of your tools.
 
 Then write the note `{target, check: deadlock_repeat, subject, detail, code, fix, links}`:
 - `detail`: both statements, the tables and indexes, the lock each held and waited for, and the
   victim, as read;
-- `code`: `owner/name path:line` from step 1 or 2, or what step 4 says (always with the repos
-  searched);
+- `code`: `owner/name path:line` from step 1 or 2, or what step 4 says (with the repos searched
+  in this run, or why none was);
 - `fix`: from the evidence, the change that removes the cycle. Common ones:
   - two transactions take the same rows or tables in a different order → one order (sort the keys
     of a batch; touch the parent before the child everywhere);
