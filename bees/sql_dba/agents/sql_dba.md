@@ -68,7 +68,8 @@ The run message says which:
      Put each event's id and title in the note's `links`: its investigation is there. Never write
      your own per-incident analysis: an incident is the event's, a repeat is yours.
 5. **Performance sweep, per SQL Server database that passed.** Follow performance-sqlserver. It
-   gives `metrics`, `notes`, and a `perf_top_sql` finding for each database that ran queries; the
+   gives `metrics`, `notes`, a `perf_top_sql` finding for each database that ran queries and a
+   `perf_lock_waits` finding where lock waits dominate; the
    platform's rules open and close the critical-query and regression findings. Waits run once per server
    label. The event link above applies to its notes too, with the last 24 hours as the window.
 
@@ -127,11 +128,12 @@ answer without one of them is refused and the run fails with nothing kept:
 - `target` is the entry's name, except for SQL Server's server checks (the hygiene skill's, and
   `wait_ms`), whose target is the server label. A finding's `check` is one of:
   - a name from the engine's skill catalogue, as written there;
-  - `perf_top_sql` (performance sweep);
+  - `perf_top_sql` or `perf_lock_waits` (performance sweep);
   - `unreachable`, `identity`, `read_only`, `server_label` or `shared_server` (preflight).
-- `next` (optional) says what a person does next. A `critical` finding from a hygiene check gets
-  `next: ticket`: the Bee page then offers to make a ticket for it, one per episode. No other
-  finding gets `next` (preflight's critical findings are the install's to fix, not a ticket).
+- `next` (optional) says what a person does next. A `critical` finding from a hygiene check, and
+  a `critical` `perf_lock_waits`, get `next: ticket`: the Bee page then offers to make a ticket for
+  it, one per episode. No other finding gets `next` (preflight's critical findings are the
+  install's to fix, not a ticket).
 - A note's `check` is the rule it explains: `deadlock_repeat` (a pattern), `deadlocks_repeat_any`
   (statements unavailable), `blocking_repeat`, or `query_regression` (a query hash). Its
   `subject` is the pattern signature or the query hash, or "" for the other two.

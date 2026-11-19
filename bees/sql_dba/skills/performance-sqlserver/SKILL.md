@@ -5,8 +5,9 @@ description: The daily performance sweep for SQL Server - waits per server, the 
 # SQL Server performance
 
 You report numbers and notes; the platform keeps them and its rules open findings
-(`critical_query_slower`, `query_regression`). The only finding you write yourself is
-`perf_top_sql`. Never decide that something is slower than usual: the rules do.
+(`critical_query_slower`, `query_regression`). The only findings you write yourself are
+`perf_top_sql` and `perf_lock_waits`. Never decide that something is slower than usual: the rules
+do.
 
 PostgreSQL and MySQL entries: this sweep doesn't check them yet. Run their preflight, then leave
 them out, and say so in `evidence`. The verdict counts SQL Server entries only; an install with
@@ -78,6 +79,33 @@ Report:
 - NULL (no query ran in 24 hours): report 0.
 
 The platform keeps them to learn each database's usual load and waits; no rule reads them yet.
+
+### Lock waits
+Under the same condition as the waits total (major 14 or more, or Azure SQL), in the same turn:
+how much of the last 24 hours' wait was queries waiting on locks, with the severity decided by
+the query (critical: lock waits are an hour or more and at least half of all waits; warning: ten
+minutes or more and at least a quarter):
+
+`WITH w AS (SELECT ws.wait_category_desc, SUM(ws.total_query_wait_time_ms) AS wait_ms FROM sys.query_store_wait_stats ws JOIN sys.query_store_runtime_stats_interval i ON i.runtime_stats_interval_id = ws.runtime_stats_interval_id WHERE i.start_time >= DATEADD(hour, -24, SYSDATETIMEOFFSET()) AND ws.wait_category_desc NOT IN ('Idle', 'User Wait', 'Network IO') GROUP BY ws.wait_category_desc), t AS (SELECT SUM(wait_ms) AS total_ms, SUM(CASE WHEN wait_category_desc = 'Lock' THEN wait_ms ELSE 0 END) AS lock_ms FROM w) SELECT CAST(COALESCE(t.lock_ms, 0) / 1000.0 AS float) AS lock_wait_s, CAST(ROUND(100.0 * t.lock_ms / NULLIF(t.total_ms, 0), 1) AS float) AS lock_share_percent, CASE WHEN (SELECT wait_stats_capture_mode_desc FROM sys.database_query_store_options) <> 'ON' THEN 'not_captured' WHEN t.lock_ms >= 3600000 AND t.lock_ms * 2 >= t.total_ms THEN 'critical' WHEN t.lock_ms >= 600000 AND t.lock_ms * 4 >= t.total_ms THEN 'warning' ELSE 'ok' END AS severity, (SELECT wait_stats_capture_mode_desc FROM sys.database_query_store_options) AS wait_capture FROM t OPTION (MAX_GRANT_PERCENT = 1)`
+
+- `severity` `not_captured` (wait capture is off): not checked; say so in `evidence`.
+- `severity` `ok`: `checked` only, no finding.
+- `warning` or `critical`: in the next turn, the queries that waited longest on locks:
+
+  `WITH l AS (SELECT q.query_hash, SUM(ws.total_query_wait_time_ms) AS lock_ms FROM sys.query_store_wait_stats ws JOIN sys.query_store_runtime_stats_interval i ON i.runtime_stats_interval_id = ws.runtime_stats_interval_id JOIN sys.query_store_plan p ON p.plan_id = ws.plan_id JOIN sys.query_store_query q ON q.query_id = p.query_id WHERE i.start_time >= DATEADD(hour, -24, SYSDATETIMEOFFSET()) AND ws.wait_category_desc = 'Lock' GROUP BY q.query_hash), r AS (SELECT q.query_hash, SUM(rs.count_executions) AS executions, SUM(rs.avg_duration * rs.count_executions) AS dur_us, SUM(rs.avg_cpu_time * rs.count_executions) AS cpu_us, LEFT(MAX(qt.query_sql_text), 200) AS query_text FROM sys.query_store_runtime_stats rs JOIN sys.query_store_runtime_stats_interval i ON i.runtime_stats_interval_id = rs.runtime_stats_interval_id JOIN sys.query_store_plan p ON p.plan_id = rs.plan_id JOIN sys.query_store_query q ON q.query_id = p.query_id JOIN sys.query_store_query_text qt ON qt.query_text_id = q.query_text_id WHERE i.start_time >= DATEADD(hour, -24, SYSDATETIMEOFFSET()) GROUP BY q.query_hash) SELECT TOP 5 CONVERT(varchar(20), l.query_hash, 1) AS query_hash, CAST(l.lock_ms / 1000.0 AS float) AS lock_wait_s, CAST(r.executions AS float) AS executions, CAST(r.dur_us / NULLIF(r.executions, 0) / 1000.0 AS float) AS avg_ms, CAST(r.cpu_us / NULLIF(r.executions, 0) / 1000.0 AS float) AS avg_cpu_ms, r.query_text FROM l LEFT JOIN r ON r.query_hash = l.query_hash ORDER BY l.lock_ms DESC OPTION (MAX_GRANT_PERCENT = 1)`
+
+  One finding: `check: perf_lock_waits`, `severity` as the first query returned, title
+  "Lock waits are <lock_share_percent>% of wait time, last 24h" (the percent as read),
+  `value` `lock_wait_s`, `unit` seconds. `detail`: the lock wait seconds and share, then each row
+  as read (hash, lock wait seconds, executions, average ms, average CPU ms, the text; a NULL
+  number, a query with no runtime row, is left out). Say that an
+  average far above its CPU time means the query spent its time waiting, not working, and that the
+  same cause usually shows as **Deadlock repeats** and **Blocking repeats** on this database,
+  whose notes name the statements and the code: this finding is the cost, those are the cause.
+  The fix, for a person: shorten what holds the locks (one long transaction around many rows or
+  an outside call, updates of the same rows in different orders), and see the blocking numbers of
+  the deadlocks sweep for who holds them. `critical` gets `next: ticket`.
+- `checked`: `{target, check: perf_lock_waits}` whenever the first query ran.
 
 ## 4. Critical queries, per database
 `critical_queries` lists `name:0xHASH` entries. For this database's hashes (the entries whose

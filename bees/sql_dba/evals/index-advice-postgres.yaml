@@ -1,0 +1,4 @@
+name: Hygiene sweep on one PostgreSQL 17 database with pg_stat_statements, where the index_advice count is 1 and the detail lists table public.k8s_pods (866000 rows, 1167 MB, 1.8 million full scans reading 180000 rows each, 26.7 million writes) whose indexes all start with (cloud_account_id, tenant_id, ...) and its top statement SELECT namespace, name, restart_count FROM k8s_pods WHERE cloud_account_id = $1 AND namespace = ANY(ARRAY[$2]) AND name = ANY(ARRAY[$3]) (399000 calls, mean 196 ms) - one index_advice finding, info, value 1, that suggests CREATE INDEX CONCURRENTLY ON public.k8s_pods (cloud_account_id, namespace, name), names the statement, says the existing indexes start with tenant_id after cloud_account_id, gives the size bound and the writes, and is marked unverified; no EXPLAIN in the run's calls
+trigger: fixtures/scheduled-run.json
+expect:
+  verdict: checked
