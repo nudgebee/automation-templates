@@ -135,21 +135,22 @@ indexes query in 2); everything else is plan ids, plan hashes and numbers.
        told apart; don't advise recreating anything, and don't offer that plan to force.
      - No rows: the plan read no index of this database, or its XML is too deep to read.
 3. **The code.** A tool that fails or returns nothing has not answered: go on to the next one.
-   - `module` from 1 is a procedure: that is the code in the database; also look for its name in
-     `repos` (below) to find the caller.
-   - `traces_execute`, the last 24 hours, SQL on `traces_view`: a database span's statement is in
-     `endpoint` (there is no `db_statement` column). Spans whose `endpoint` matches (`ILIKE`) the
-     query's main table and a distinctive part of its text, grouped by `service_name` and
-     `endpoint`. That gives the service and the endpoint.
-   - `github_execute`, whenever `repos` is set, even when traces gave the service and endpoint
-     (they don't give the file), each repo in turn until one has it:
+   - `module` from 1 is a procedure: that is the code in the database; also search for its name
+     in `repos` (below) to find the caller.
+   - `github_execute`, first, whenever `repos` is set. Not optional: a note written without it is
+     wrong. Each repo in turn until one has it:
      `gh search code "<a distinctive fragment of the text or the procedure name>" --repo <owner/name> --limit 5 --json path,url`,
      then read the few lines around it (`gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d`).
    - An index is gone: also search each repo for its name (without brackets), to find the
      migration or change that dropped it.
-   - Nothing found, only after the search ran in every repo (or `repos` is not set): the note
-     names the service and endpoint, or says "code not found". Say in `evidence` what each search
-     returned.
+   - `traces_execute`, only when the search found no file, the last 24 hours, SQL on
+     `traces_view`: a database span's statement is in `endpoint` (there is no `db_statement`
+     column). Spans whose `endpoint` matches (`ILIKE`) the query's main table and a distinctive
+     part of its text, grouped by `service_name` and `endpoint`. That gives the service and the
+     endpoint.
+   - Nothing found: the note names the service and endpoint, or says "code not found", and ends
+     with the repos searched: `code not found (searched acme/orders-api)`; with `repos` not set,
+     `code not found (repos not set)`. Say in `evidence` what each search returned.
 
 Write `{target, check: query_regression, subject: <hash>, detail, code, fix, links}`:
 - `detail`: the text (as read, cut); before and after, executions and average ms per window and
@@ -176,7 +177,8 @@ Write `{target, check: query_regression, subject: <hash>, detail, code, fix, lin
   - **The plan shape didn't change:** forcing can't help. Name what the evidence points at
     instead: statistics updated or stale on its tables, a jump in executions, rows or reads per
     call, or blocking (the deadlocks sweep's blocking notes on this database).
-- `code`: file:line in its repo, the procedure, or the service and endpoint, or "code not found".
+- `code`: `owner/name path:line` from the search, the procedure, or what "Nothing found" says
+  (always with the repos searched).
 - `links`: the repo file URL, and any event from the event check.
 
 If the run is near its end (about 35 turns used), stop writing notes and answer: the numbers

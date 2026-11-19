@@ -1,0 +1,4 @@
+name: Deadlocks sweep where one SQL Server database's counter moved and system_health holds 4 deadlocks of one new pattern (an UPDATE of inventory and an UPDATE of customer_credit in opposite orders), the repo in repos has both statements in two Go files, and the app's logs and traces would answer with nothing - the bee runs a gh search code for each statement before any logs or traces call, reads the lines around each, and writes a deadlock_repeat note whose code names both files as owner/name path:line; deadlock_events 4 for that subject; no findings written by the bee
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked
