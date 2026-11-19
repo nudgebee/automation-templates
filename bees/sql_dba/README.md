@@ -16,6 +16,14 @@ What changed since v0.4:
   (SQL Server 2019 and later name them), the table's size and its writes since the server started.
   Every advice is marked unverified: it is SQL Server's own estimate, and an index can't be tested
   without creating it. Commands are written for a person, never run.
+- **Index advice, PostgreSQL** (`index_advice`, daily hygiene, 0.5.7): the large tables queries
+  read whole again and again (`pg_stat_user_tables`), each with the `pg_stat_statements`
+  statements that took the most time on it and its existing indexes, and one advice per table
+  from those statements' filters, with the table's size and writes. Unverified: the bee doesn't
+  read PostgreSQL plans yet.
+- **Lock waits, SQL Server** (`perf_lock_waits`, daily performance, 0.5.6): how much of the last
+  24 hours' Query Store wait time was lock waits, with the severity decided by the query, and the
+  five queries that waited longest.
 - **Duplicate and unused indexes, every engine** (`index_duplicate`, `index_unused`): an index
   backing a primary key or unique constraint, or one a foreign key references, is never one to drop,
   and each duplicate names the index to keep. Unused leaves out unique indexes and indexes on a
@@ -96,8 +104,8 @@ Query Store must be collecting: a full (read-only) store is reported as not chec
 idle day.
 
 **Later:** findings when connections, CPU or waits go far above their usual range (needs a
-floor on the platform's baseline rule), index advice on PostgreSQL and MySQL, and the performance
-sweep on PostgreSQL and MySQL.
+floor on the platform's baseline rule), index advice on MySQL, plans for PostgreSQL index advice,
+and the performance sweep on PostgreSQL and MySQL.
 
 ## Setup
 - **One SQL integration per database,** named after it. On RDS and Cloud SQL, use the instance
