@@ -88,7 +88,14 @@ A run that stops early must leave whole databases behind, not half of each.
   database after it unchecked. Treat the check as not run (step 3) and go on to the next check or
   database. A connection or login error in preflight makes the database unreachable: skip it.
 - Log, trace, cloud and GitHub calls only read too: `logging read`, `logs filter-log-events`,
-  `gh api` GET. Never `code_analyzer`.
+  `gh search code`, `gh api` GET. Never `code_analyzer`.
+
+## The code behind a note
+When `repos` is set, every `deadlock_repeat` and `query_regression` note you write, or write
+again, comes after a `github_execute` `gh search code` for its statements in each repo (deadlocks
+step 5, performance-sqlserver step 3). Search before logs and traces: the search is what finds the
+file. A note's `code` is `owner/name path:line`, or says which repos were searched. Near the end
+of a run, write fewer notes rather than notes without the search.
 
 ## Numbers
 Every number in a finding or a metric comes from a query result: a `COUNT(*)` for how many

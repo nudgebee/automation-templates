@@ -61,8 +61,11 @@ plain missing-index list of earlier versions.
     keeping every column it has. Its size now is `extend_index_mb` MB. When `extend_add_include` is empty, the index already covers
     the request, most likely because it was created after SQL Server recorded the request (it keeps
     them until it restarts): nothing to create, say so.
-  - **New** otherwise: `CREATE INDEX IX_<table>_<equality columns> ON <table> (<equality_columns>, <inequality_columns>) INCLUDE (<included_columns>)`
-    for a person to review, never as listed without that review. It would be at most the table's
+  - **New** otherwise: `CREATE INDEX [IX_<table>_<columns>] ON <table_name> (<equality_columns>, <inequality_columns>) INCLUDE (<included_columns>)`
+    for a person to review, never as listed without that review. In the name, `<table>` is the
+    table without its schema and `<columns>` the equality columns' names without brackets, joined
+    by `_`: `CREATE INDEX [IX_orders_customer_id] ON shop.orders ([customer_id], [created_at])`.
+    Leave out `INCLUDE (...)` when `included_columns` is empty. It would be at most the table's
     size: `table_mb` MB for `table_rows` rows.
   - Either way: the estimated gain (`impact_percent`, SQL Server's estimate) and how often the
     optimizer asked (`uses`); the queries it helps (`query_hash`, `uses`, `statement`); and its

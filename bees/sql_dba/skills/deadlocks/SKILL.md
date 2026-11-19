@@ -218,33 +218,36 @@ listed with a note is done, even if it recurs, except when its note names no fil
 `none`, "code not found", or only a service and endpoint) and its age is shown in days ("1 days" or
 more): trace it once more, and write its note again whether or not you find the file, so its age
 restarts.
-1. **The app's error line.** `logs_execute_v2`, two minutes either side of one occurrence
-   (`start_time`, `end_time`), for the driver's deadlock error: SQL Server `was deadlocked on lock
-   resources`, PostgreSQL `deadlock detected`, MySQL `Deadlock found when trying to get lock`. Its
-   `command` is a JSON filter, never LogQL or an Elasticsearch query:
+1. **Search the repos**, first, whenever `repos` is set. This step is not optional: a note
+   written without it is wrong, even when logs or traces would have answered. For each statement
+   of the pattern, each repo in turn until one has it:
+   `github_execute` `gh search code "<a distinctive fragment of the statement>" --repo <owner/name> --limit 5 --json path,url`
+   (the fragment as code would write it: the verb, the table and a column, never a value). Then
+   read the few lines around it: `gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d`.
+   Read only; quote the lines around the statement. Search each distinct statement once per run,
+   even when several patterns share it (GitHub allows about 10 code searches a minute), and reuse
+   the result for every pattern that has it.
+2. **The app's error line**, only when step 1 found no file. `logs_execute_v2`, two minutes either
+   side of one occurrence (`start_time`, `end_time`), for the driver's deadlock error: SQL Server
+   `was deadlocked on lock resources`, PostgreSQL `deadlock detected`, MySQL `Deadlock found when
+   trying to get lock`. Its `command` is a JSON filter, never LogQL or an Elasticsearch query:
    `{"where": {"message": {"_ilike": "%was deadlocked on lock resources%"}}, "limit": 20}`.
-   Take the file:line or function from the line or its stack.
-2. **Traces.** `traces_execute`, five minutes either side, SQL on `traces_view`. A database span's
-   statement is in `endpoint` (there is no `db_statement` column):
+   A file:line or function in the line or its stack: read it from the repos as in step 1.
+3. **Traces**, only when steps 1 and 2 found no file. `traces_execute`, five minutes either side,
+   SQL on `traces_view`. A database span's statement is in `endpoint` (there is no `db_statement`
+   column):
    `SELECT service_name, endpoint, count(*) AS n FROM traces_view WHERE timestamp >= parseDateTimeBestEffort('<from>') AND timestamp < parseDateTimeBestEffort('<to>') AND endpoint ILIKE '%<table>%' GROUP BY service_name, endpoint ORDER BY n DESC LIMIT 20`.
    That gives the service, and the endpoint when the app's HTTP spans share the trace.
-3. **The code**, whenever `repos` is set, whatever steps 1 and 2 returned: a line or span, nothing,
-   or an error. A logs or traces tool that fails is not a reason to skip this step.
-   - Step 1 gave a file: read it from each repo in turn until one has it:
-     `github_execute` `gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d`.
-     Read only; quote the few lines around the statement.
-   - Otherwise search for each statement, each repo in turn until one has it:
-     `gh search code "<a distinctive fragment of the statement>" --repo <owner/name> --limit 5 --json path,url`
-     (the fragment as code would write it: the verb, the table and a column, never a value), then
-     read the few lines around it as above. One search per statement.
-4. **Nothing found**, only after step 3 ran in every repo (or `repos` is not set): the note names
-   the service and endpoint from step 2, or says "code not found". Say in `evidence` what each
-   search returned.
+4. **Nothing found:** the note's `code` names the service and endpoint from step 3, or says
+   "code not found", and in both cases ends with the repos step 1 searched:
+   `code not found (searched acme/orders-api, acme/billing)`. With `repos` not set:
+   `code not found (repos not set)`. Say in `evidence` what each search returned.
 
 Then write the note `{target, check: deadlock_repeat, subject, detail, code, fix, links}`:
 - `detail`: both statements, the tables and indexes, the lock each held and waited for, and the
   victim, as read;
-- `code`: file:line in its repo, or the service and endpoint, or "code not found";
+- `code`: `owner/name path:line` from step 1 or 2, or what step 4 says (always with the repos
+  searched);
 - `fix`: from the evidence, the change that removes the cycle. Common ones:
   - two transactions take the same rows or tables in a different order → one order (sort the keys
     of a batch; touch the parent before the child everywhere);
