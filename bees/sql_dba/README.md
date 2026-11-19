@@ -21,9 +21,6 @@ What changed since v0.4:
   statements that took the most time on it and its existing indexes, and one advice per table
   from those statements' filters, with the table's size and writes. Unverified: the bee doesn't
   read PostgreSQL plans yet.
-- **Lock waits, SQL Server** (`perf_lock_waits`, daily performance, 0.5.6): how much of the last
-  24 hours' Query Store wait time was lock waits, with the severity decided by the query, and the
-  five queries that waited longest.
 - **Duplicate and unused indexes, every engine** (`index_duplicate`, `index_unused`): an index
   backing a primary key or unique constraint, or one a foreign key references, is never one to drop,
   and each duplicate names the index to keep. Unused leaves out unique indexes and indexes on a

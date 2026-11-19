@@ -58,10 +58,12 @@ Fix: `DROP INDEX CONCURRENTLY <drop_index>`, for a person to run after checking 
 
 ## index_advice
 Large tables that queries read whole, again and again, and the statements behind it. Needs
-`pg_stat_statements` (else not run; `hygiene_monitoring_off` says how to add it).
-- Count: `SELECT count(*) AS n FROM pg_stat_user_tables t WHERE t.n_live_tup >= 10000 AND t.seq_scan >= 1000 AND t.seq_tup_read / t.seq_scan >= 10000 AND t.schemaname NOT IN ('hdb_catalog', 'pg_catalog', 'information_schema') AND NOT EXISTS (SELECT 1 FROM pg_depend dep WHERE dep.classid = 'pg_class'::regclass AND dep.objid = t.relid AND dep.deptype = 'e')`
+`pg_stat_statements` and PostgreSQL 13 or later (its time columns); else not run, and say why in
+`evidence` (`hygiene_monitoring_off` says how to add the extension). Partitions are left out:
+their statements name the parent table.
+- Count: `SELECT count(*) AS n FROM pg_stat_user_tables t WHERE t.n_live_tup >= 10000 AND t.seq_scan >= 1000 AND t.seq_tup_read / t.seq_scan >= 10000 AND t.schemaname NOT IN ('hdb_catalog', 'pg_catalog', 'information_schema') AND NOT EXISTS (SELECT 1 FROM pg_depend dep WHERE dep.classid = 'pg_class'::regclass AND dep.objid = t.relid AND dep.deptype = 'e') AND NOT EXISTS (SELECT 1 FROM pg_inherits h WHERE h.inhrelid = t.relid)`
 - Detail (the five tables read most, each with its three statements that took the most time):
-  `WITH t AS (SELECT t.relid, t.schemaname, t.relname, t.n_live_tup, t.seq_scan, t.seq_tup_read, COALESCE(t.idx_scan, 0) AS idx_scan, t.n_tup_ins + t.n_tup_upd + t.n_tup_del AS writes FROM pg_stat_user_tables t WHERE t.n_live_tup >= 10000 AND t.seq_scan >= 1000 AND t.seq_tup_read / t.seq_scan >= 10000 AND t.schemaname NOT IN ('hdb_catalog', 'pg_catalog', 'information_schema') AND NOT EXISTS (SELECT 1 FROM pg_depend dep WHERE dep.classid = 'pg_class'::regclass AND dep.objid = t.relid AND dep.deptype = 'e') ORDER BY t.seq_tup_read DESC LIMIT 5), q AS (SELECT t.relid, s.queryid, s.calls, s.total_exec_time, s.mean_exec_time, s.query, row_number() OVER (PARTITION BY t.relid ORDER BY s.total_exec_time DESC) AS rn FROM t JOIN pg_stat_statements s ON s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database()) AND s.query ~* ('\m' || t.relname || '\M') AND s.query ~* '\mwhere\M') SELECT t.schemaname || '.' || t.relname AS table_name, t.n_live_tup::float AS live_rows, t.seq_scan::float AS seq_scans, round((t.seq_tup_read / t.seq_scan)::numeric, 0)::float AS rows_per_seq_scan, t.idx_scan::float AS index_scans, t.writes::float AS writes, round(pg_relation_size(t.relid) / 1048576.0, 1)::float AS table_mb, (SELECT string_agg(regexp_replace(i.indexdef, '^.* USING ', ''), '; ' ORDER BY i.indexname) FROM pg_indexes i WHERE i.schemaname = t.schemaname AND i.tablename = t.relname) AS indexes, q.queryid::text AS queryid, q.calls::float AS calls, round(q.mean_exec_time::numeric, 1)::float AS mean_ms, round(q.total_exec_time::numeric, 0)::float AS total_ms, left(regexp_replace(q.query, '\s+', ' ', 'g'), 400) AS query, (SELECT stats_reset FROM pg_stat_database WHERE datname = current_database())::text AS stats_since FROM t LEFT JOIN q ON q.relid = t.relid AND q.rn <= 3 ORDER BY t.seq_tup_read DESC, q.rn`
+  `WITH t AS (SELECT t.relid, t.schemaname, t.relname, t.n_live_tup, t.seq_scan, t.seq_tup_read, COALESCE(t.idx_scan, 0) AS idx_scan, t.n_tup_ins + t.n_tup_upd + t.n_tup_del AS writes FROM pg_stat_user_tables t WHERE t.n_live_tup >= 10000 AND t.seq_scan >= 1000 AND t.seq_tup_read / t.seq_scan >= 10000 AND t.schemaname NOT IN ('hdb_catalog', 'pg_catalog', 'information_schema') AND NOT EXISTS (SELECT 1 FROM pg_depend dep WHERE dep.classid = 'pg_class'::regclass AND dep.objid = t.relid AND dep.deptype = 'e') AND NOT EXISTS (SELECT 1 FROM pg_inherits h WHERE h.inhrelid = t.relid) ORDER BY t.seq_tup_read DESC LIMIT 5), q AS (SELECT t.relid, s.queryid, s.calls, s.total_exec_time, s.mean_exec_time, s.query, row_number() OVER (PARTITION BY t.relid ORDER BY s.total_exec_time DESC) AS rn FROM t JOIN pg_stat_statements s ON s.dbid = (SELECT oid FROM pg_database WHERE datname = current_database()) AND s.query ~* ('\m' || regexp_replace(t.relname, '([^[:alnum:]_])', '\\\1', 'g') || '\M') AND s.query ~* '\mwhere\M') SELECT t.schemaname || '.' || t.relname AS table_name, t.n_live_tup::float AS live_rows, t.seq_scan::float AS seq_scans, round((t.seq_tup_read / t.seq_scan)::numeric, 0)::float AS rows_per_seq_scan, t.idx_scan::float AS index_scans, t.writes::float AS writes, round(pg_relation_size(t.relid) / 1048576.0, 1)::float AS table_mb, (SELECT string_agg(regexp_replace(i.indexdef, '^.* USING ', ''), '; ' ORDER BY i.indexname) FROM pg_indexes i WHERE i.schemaname = t.schemaname AND i.tablename = t.relname) AS indexes, q.queryid::text AS queryid, q.calls::float AS calls, round(q.mean_exec_time::numeric, 1)::float AS mean_ms, round(q.total_exec_time::numeric, 0)::float AS total_ms, left(regexp_replace(q.query, '\s+', ' ', 'g'), 400) AS query, (SELECT stats_reset FROM pg_stat_database WHERE datname = current_database())::text AS stats_since FROM t LEFT JOIN q ON q.relid = t.relid AND q.rn <= 3 ORDER BY t.seq_tup_read DESC, q.rn`
 - `detail`, per table, as read: its rows, size (`table_mb` MB), full scans and the rows each read,
   index scans, writes since `stats_since`, its indexes, and each statement (queryid, calls, mean
   ms, the text). Then one advice per table, from those statements' `WHERE`:
@@ -73,13 +75,18 @@ Large tables that queries read whole, again and again, and the statements behind
     and suggest the index above.
   - **An index already fits:** say so and that the planner still reads the table whole; the
     statistics or the data's spread are the place to look, not a new index.
-  - Its cost: at most the table's size, and every one of `writes` would also update it.
+  - Its cost: roughly the size of the columns it holds (the table is `table_mb` MB), and every
+    one of `writes` would also update it.
   - Mark every advice **unverified**: the bee doesn't read query plans on PostgreSQL yet (EXPLAIN
     needs SELECT on the table, which a monitoring login doesn't have). With `hypopg` installed and
     SELECT granted, a person can check it: `SELECT hypopg_create_index('CREATE INDEX ON ...')`,
     then `EXPLAIN` the statement.
-- A statement that only mentions the table in a subquery or a comment: leave it out of that
-  table's advice.
+- A statement that only mentions the table in a subquery or a comment, or names another
+  schema's table of the same name: leave it out of that table's advice.
+- A table with no statement left (no `queryid`), or whose statements read
+  `<insufficient privilege>`: no advice for it; list it with "no statement names it". When every
+  statement reads `<insufficient privilege>`, the check is not run: the login needs
+  `pg_read_all_stats` to see other roles' statements; say so in `evidence`.
 
 Fix: the advice above, for a person to review and run with `CONCURRENTLY`, after checking
 replicas and the write cost.
