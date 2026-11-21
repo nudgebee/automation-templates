@@ -28,7 +28,8 @@ What changed since v0.4:
   read PostgreSQL plans yet.
 - **Lock waits, SQL Server** (`perf_lock_waits`, daily performance, 0.5.6): how much of the last
   24 hours' Query Store wait time was lock waits, with the severity decided by the query, and the
-  five queries that waited longest.
+  five queries that waited longest. Before 0.5.10 a sweep that gave this finding was refused (its
+  unit, seconds, was not in the answer's units), and nothing from that sweep was kept.
 - **Duplicate and unused indexes, every engine** (`index_duplicate`, `index_unused`): an index
   backing a primary key or unique constraint, or one a foreign key references, is never one to drop,
   and each duplicate names the index to keep. Unused leaves out unique indexes and indexes on a
