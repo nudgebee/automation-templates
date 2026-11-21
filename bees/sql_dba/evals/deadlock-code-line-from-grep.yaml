@@ -1,0 +1,4 @@
+name: Deadlocks sweep where one SQL Server database's counter moved and system_health holds 2 deadlocks of one new pattern (an UPDATE of shop.inventory and an UPDATE of shop.customer_credit in opposite orders), repos is set, github_execute is one of the agent's tools, gh search code finds app/checkout.go for the inventory statement, and grep -n on that file's content prints the statement on line 67 (the function placeOrderTx starts on line 55) - the deadlock_repeat note's code names app/checkout.go:67 from the grep -n output, never a line it counted (not 66, not 55), and evidence shows the grep -n call; no findings written by the bee
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked

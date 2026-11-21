@@ -19,7 +19,8 @@ What changed since v0.4:
 - **The code behind a note** (0.5.8): a note never says it searched a repo it did not search in
   that run. Without GitHub access on the install it says `code not looked up (no GitHub access)`,
   and a deadlock note that says so is traced again a day later, like one that says "code not
-  found".
+  found". Since 0.5.9 the `path:line` is the line `grep -n` finds the statement on, not a counted
+  one.
 - **Index advice, PostgreSQL** (`index_advice`, daily hygiene, 0.5.7): the large tables queries
   read whole again and again (`pg_stat_user_tables`), each with the `pg_stat_statements`
   statements that took the most time on it and its existing indexes, and one advice per table
