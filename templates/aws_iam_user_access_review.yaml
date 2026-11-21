@@ -1,0 +1,343 @@
+slug: aws_iam_user_access_review
+name: "AWS IAM User Access Review"
+description: "Weekly IAM access review: users with no console sign-in or access-key use in N days (checked against CloudTrail) and console users without MFA. Emails an admin report, each affected user, or both. Read-only."
+category: "security"
+icon: "users"
+status: ACTIVE
+tags:
+  labels:
+    - "diagnostic"
+    - "notification"
+    - "read-only"
+  event_sources:
+    - "aws"
+definition:
+  version: "v1"
+  llm_description: |-
+    Reviews the IAM users in an AWS account and emails what it finds. Two checks, chosen with 'checks':
+    - inactive: users with no console sign-in or access-key use (active or deactivated keys) in the last N days. Each is checked against their most recent CloudTrail event in the chosen region; a user with an event inside the window is reported as "Active in CloudTrail" instead of "Inactive".
+    - no_mfa: users who can sign in to the console and have no MFA device.
+
+    'send_to' chooses who is emailed: admin (one report table to email_recipients), users (each affected user gets an email about their own user only), or both. A user's address comes from an IAM tag (default key 'email'), otherwise from the user name when it is an email address. Users flagged only as "Active in CloudTrail" are not emailed.
+
+    Use for periodic access reviews and MFA enforcement. Read-only: it calls IAM list/get APIs, STS GetCallerIdentity and CloudTrail LookupEvents.
+  inputs:
+    - id: "account_id"
+      type: "string"
+      description: "AWS account to review"
+      required: true
+    - id: "checks"
+      type: "string"
+      description: "Which checks to run: inactive, no_mfa or both"
+      required: false
+      default: "both"
+    - id: "send_to"
+      type: "string"
+      description: "Who is emailed: admin, users or both"
+      required: false
+      default: "admin"
+    - id: "inactive_days"
+      type: "string"
+      description: "Days without console sign-in or access-key use before a user is reported as inactive"
+      required: false
+      default: "30"
+    - id: "cloudtrail_region"
+      type: "string"
+      description: "Region to read CloudTrail event history from; needed for the inactive check. Console sign-ins and IAM calls are logged in us-east-1."
+      required: false
+    - id: "email_recipients"
+      type: "string"
+      description: "Admin report recipients (comma-separated); needed when send_to is admin or both"
+      required: false
+    - id: "user_email_tag"
+      type: "string"
+      description: "IAM tag key holding a user's email address"
+      required: false
+      default: "email"
+  triggers:
+    - type: "schedule"
+      params:
+        cron: "0 9 * * 1"
+    - type: "manual"
+  tasks:
+    - id: "review_users"
+      type: "scripting.run_script"
+      timeout: "10m"
+      params:
+        account_id: "{{ Inputs.account_id }}"
+        language: "python"
+        parser_type: "json"
+        env:
+          CHECKS: "{{ Inputs.checks }}"
+          SEND_TO: "{{ Inputs.send_to }}"
+          INACTIVE_DAYS: "{{ Inputs.inactive_days }}"
+          TRAIL_REGION: "{{ Inputs.cloudtrail_region }}"
+          ADMIN_RECIPIENTS: "{{ Inputs.email_recipients }}"
+          USER_EMAIL_TAG: "{{ Inputs.user_email_tag }}"
+        script: |
+          import json
+          import os
+          import re
+          import subprocess
+          import sys
+          import time
+          from datetime import datetime, timedelta, timezone
+
+          CHECKS = (os.environ.get("CHECKS") or "both").strip()
+          SEND_TO = (os.environ.get("SEND_TO") or "admin").strip()
+          if CHECKS not in ("inactive", "no_mfa", "both"):
+              sys.exit(f"checks must be inactive, no_mfa or both, got {CHECKS!r}")
+          if SEND_TO not in ("admin", "users", "both"):
+              sys.exit(f"send_to must be admin, users or both, got {SEND_TO!r}")
+          CHECK_INACTIVE = CHECKS in ("inactive", "both")
+          CHECK_MFA = CHECKS in ("no_mfa", "both")
+          EMAIL_USERS = SEND_TO in ("users", "both")
+          if SEND_TO in ("admin", "both") and not (os.environ.get("ADMIN_RECIPIENTS") or "").strip():
+              sys.exit("send_to includes admin, so email_recipients is required")
+
+          DAYS = int(os.environ.get("INACTIVE_DAYS") or "30")
+          TRAIL_REGION = (os.environ.get("TRAIL_REGION") or "").strip()
+          if CHECK_INACTIVE and not TRAIL_REGION:
+              sys.exit("the inactive check needs cloudtrail_region")
+          EMAIL_TAG = (os.environ.get("USER_EMAIL_TAG") or "email").strip()
+          EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+          NOW = datetime.now(timezone.utc)
+          CUTOFF = NOW - timedelta(days=DAYS)
+
+
+          def aws(*args, missing_ok=False):
+              out = subprocess.run(["aws", *args, "--output", "json"], capture_output=True, text=True)
+              if out.returncode != 0:
+                  if missing_ok and "NoSuchEntity" in out.stderr:
+                      return None
+                  sys.exit(f"aws {' '.join(args[:2])} failed: {out.stderr.strip()}")
+              return json.loads(out.stdout or "null")
+
+
+          def parse(ts):
+              return datetime.fromisoformat(ts.replace("Z", "+00:00")) if ts else None
+
+
+          def user_email(name):
+              tags = aws("iam", "list-user-tags", "--user-name", name)["Tags"]
+              for t in tags:
+                  if t["Key"] == EMAIL_TAG and EMAIL_RE.match(t["Value"].strip()):
+                      return t["Value"].strip()
+              return name if EMAIL_RE.match(name) else None
+
+
+          account = aws("sts", "get-caller-identity")["Account"]
+          users = aws("iam", "list-users")["Users"]
+
+          rows = []
+          for u in users:
+              name = u["UserName"]
+              created = parse(u["CreateDate"])
+              console = aws("iam", "get-login-profile", "--user-name", name, missing_ok=True) is not None
+              mfa = None
+              no_mfa = False
+              if CHECK_MFA and console:
+                  mfa = bool(aws("iam", "list-mfa-devices", "--user-name", name)["MFADevices"])
+                  no_mfa = not mfa
+
+              status, last, active_keys, event = None, None, None, None
+              if CHECK_INACTIVE:
+                  used = [parse(u.get("PasswordLastUsed"))]
+                  active_keys = 0
+                  for k in aws("iam", "list-access-keys", "--user-name", name)["AccessKeyMetadata"]:
+                      active_keys += k["Status"] == "Active"
+                      key_use = aws("iam", "get-access-key-last-used", "--access-key-id", k["AccessKeyId"])["AccessKeyLastUsed"]
+                      used.append(parse(key_use.get("LastUsedDate")))
+                  used = [d for d in used if d]
+                  last = max(used) if used else None
+                  idle = not (last and last >= CUTOFF) and not (not last and created >= CUTOFF)
+                  if idle:
+                      trail = aws(
+                          "cloudtrail", "lookup-events", "--region", TRAIL_REGION,
+                          "--lookup-attributes", f"AttributeKey=Username,AttributeValue={name}",
+                          "--start-time", (NOW - timedelta(days=90)).isoformat(),
+                          "--max-items", "1",
+                      )
+                      ev = (trail or {}).get("Events") or []
+                      time.sleep(0.6)  # LookupEvents is limited to 2 requests per second
+                      recent = bool(ev) and parse(ev[0]["EventTime"]) >= CUTOFF
+                      status = "Active in CloudTrail" if recent else "Inactive"
+                      event = f"{ev[0]['EventName']} ({ev[0]['EventSource']}) {ev[0]['EventTime'][:10]}" if ev else "none in 90 days"
+
+              if not status and not no_mfa:
+                  continue
+              if mfa is None:
+                  mfa = bool(aws("iam", "list-mfa-devices", "--user-name", name)["MFADevices"])
+              rows.append({
+                  "user": name,
+                  "findings": ", ".join(f for f in (status, "No MFA" if no_mfa else None) if f),
+                  "inactive": status == "Inactive",
+                  "no_mfa": no_mfa,
+                  "days_idle": (NOW - (last or created)).days if status else None,
+                  "last_used": (last.date().isoformat() if last else "never") if status else None,
+                  "console_access": console,
+                  "mfa": mfa,
+                  "active_keys": active_keys,
+                  "last_cloudtrail_event": event,
+                  "email": user_email(name) if EMAIL_USERS else None,
+              })
+
+          rows.sort(key=lambda r: (not r["inactive"], not r["no_mfa"], -(r["days_idle"] or 0)))
+
+          columns = [("User", lambda r: r["user"]), ("Findings", lambda r: r["findings"])]
+          if CHECK_INACTIVE:
+              columns += [
+                  ("Idle (days)", lambda r: r["days_idle"] if r["days_idle"] is not None else ""),
+                  ("Last used", lambda r: r["last_used"] or ""),
+                  ("Active keys", lambda r: r["active_keys"]),
+                  ("Last CloudTrail event", lambda r: r["last_cloudtrail_event"] or ""),
+              ]
+          columns += [
+              ("Console", lambda r: "yes" if r["console_access"] else "no"),
+              ("MFA", lambda r: "yes" if r["mfa"] else "no"),
+          ]
+          if EMAIL_USERS:
+              columns.append(("Email", lambda r: r["email"] or "no email on file"))
+
+          summary = []
+          if CHECK_INACTIVE:
+              summary.append(
+                  f"{sum(r['inactive'] for r in rows)} inactive for {DAYS}+ days, "
+                  f"{sum(r['findings'].startswith('Active in CloudTrail') for r in rows)} idle in IAM but active in CloudTrail"
+              )
+          if CHECK_MFA:
+              summary.append(f"{sum(r['no_mfa'] for r in rows)} console users without MFA")
+          lines = [
+              f"**AWS account {account}: {len(rows)} of {len(users)} IAM users need a look.** " + "; ".join(summary) + ".",
+              "",
+              "| " + " | ".join(c[0] for c in columns) + " |",
+              "|" + "---|" * len(columns),
+          ]
+          for r in rows:
+              lines.append("| " + " | ".join(str(c[1](r)) for c in columns) + " |")
+
+          messages = []
+          if EMAIL_USERS:
+              for r in rows:
+                  if not r["email"] or not (r["inactive"] or r["no_mfa"]):
+                      continue
+                  points = []
+                  if r["inactive"]:
+                      points.append(
+                          f"- It has not signed in to the console or used an access key in {r['days_idle']} days. "
+                          "If you no longer need it, ask your AWS administrator to remove it."
+                      )
+                  if r["no_mfa"]:
+                      points.append(
+                          "- It can sign in to the AWS console without MFA. Add an MFA device under "
+                          f"IAM > Users > {r['user']} > Security credentials."
+                      )
+                  messages.append({
+                      "email": r["email"],
+                      "subject": f"Your AWS IAM user {r['user']} in account {account} needs attention",
+                      "body": f"Your IAM user **{r['user']}** in AWS account {account}:\n\n" + "\n".join(points),
+                  })
+
+          print(json.dumps({
+              "account": account,
+              "count": len(rows),
+              "total_users": len(users),
+              "users": rows,
+              "markdown": "\n".join(lines),
+              "user_messages": messages,
+              "user_message_count": len(messages),
+              "users_without_email": sum(1 for r in rows if EMAIL_USERS and not r["email"]),
+          }))
+
+    - id: "email_admin"
+      type: "notifications.email"
+      depends_on:
+        - "review_users"
+      if: "{{ Inputs.send_to != 'users' and Tasks.review_users.output.data.count > 0 }}"
+      params:
+        recipients: "{{ Inputs.email_recipients }}"
+        subject: "AWS IAM access review: {{ Tasks.review_users.output.data.count }} users need a look (account {{ Tasks.review_users.output.data.account }})"
+        body_format: "markdown"
+        body: "{{ Tasks.review_users.output.data.markdown }}"
+
+    - id: "email_users"
+      type: "core.foreach"
+      depends_on:
+        - "review_users"
+      if: "{{ Inputs.send_to != 'admin' and Tasks.review_users.output.data.user_message_count > 0 }}"
+      params:
+        items: "{{ Tasks.review_users.output.data.user_messages | to_json }}"
+        item: "message"
+        concurrency: 2
+        tasks:
+          - id: "send"
+            type: "notifications.email"
+            params:
+              recipients: "{{ LoopItem.message.email }}"
+              subject: "{{ LoopItem.message.subject }}"
+              body_format: "markdown"
+              body: "{{ LoopItem.message.body }}"
+        output:
+          email: "{{ LoopItem.message.email }}"
+  timeout: "15m"
+template_variables:
+  - id: "account_id"
+    input_ref: "account_id"
+    display_name: "AWS Account"
+    help_text: "Account to review. Its Nudgebee role needs iam:ListUsers, iam:GetLoginProfile, iam:ListMFADevices, iam:ListAccessKeys, iam:GetAccessKeyLastUsed, iam:ListUserTags and cloudtrail:LookupEvents."
+    required: true
+    type: "account_selector"
+    group: "AWS"
+  - id: "checks"
+    input_ref: "checks"
+    display_name: "Checks"
+    help_text: "inactive: no console sign-in or access-key use in N days. no_mfa: console users without MFA. both: run both."
+    required: false
+    type: "string"
+    options:
+      - "both"
+      - "inactive"
+      - "no_mfa"
+    group: "Review"
+  - id: "inactive_days"
+    input_ref: "inactive_days"
+    display_name: "Inactive After (days)"
+    help_text: "Used by the inactive check"
+    placeholder: "30"
+    required: false
+    type: "string"
+    group: "Review"
+  - id: "cloudtrail_region"
+    input_ref: "cloudtrail_region"
+    display_name: "CloudTrail Region"
+    help_text: "Needed for the inactive check. Console sign-ins and IAM calls are logged in us-east-1."
+    placeholder: "us-east-1"
+    required: false
+    type: "string"
+    group: "Review"
+  - id: "send_to"
+    input_ref: "send_to"
+    display_name: "Send To"
+    help_text: "admin: one report to the recipients below. users: each affected user gets an email about their own user. both: both."
+    required: false
+    type: "string"
+    options:
+      - "admin"
+      - "users"
+      - "both"
+    group: "Notifications"
+  - id: "email_recipients"
+    input_ref: "email_recipients"
+    display_name: "Admin Report Recipients"
+    help_text: "Comma-separated. Needed when Send To is admin or both."
+    required: false
+    type: "string"
+    group: "Notifications"
+  - id: "user_email_tag"
+    input_ref: "user_email_tag"
+    display_name: "User Email Tag"
+    help_text: "IAM tag key that holds a user's email address. Users without it are emailed at their user name when that is an email address."
+    placeholder: "email"
+    required: false
+    type: "string"
+    group: "Notifications"
