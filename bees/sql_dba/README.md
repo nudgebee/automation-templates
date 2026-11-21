@@ -21,6 +21,12 @@ What changed since v0.4:
   and a deadlock note that says so is traced again a day later, like one that says "code not
   found". Since 0.5.9 the `path:line` is the line `grep -n` finds the statement on, not a counted
   one.
+- **One subject per deadlock pattern** (0.5.11): a deadlock's subject names each statement once,
+  however many sessions ran it, so the same two statements deadlocking across two, three or four
+  sessions are one pattern and one finding, not one per session count. A pattern recorded before
+  0.5.11 under a repeated part keeps its old subject until its 7 days of deadlocks pass, then
+  closes; its deadlocks count under the new subject from the first 0.5.11 sweep. The Database
+  health dashboard's stat tiles are half a row wide, so their titles show.
 - **Index advice, PostgreSQL** (`index_advice`, daily hygiene, 0.5.7): the large tables queries
   read whole again and again (`pg_stat_user_tables`), each with the `pg_stat_statements`
   statements that took the most time on it and its existing indexes, and one advice per table

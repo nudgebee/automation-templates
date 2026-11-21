@@ -93,9 +93,12 @@ For each process in one deadlock, write `<kind> <table>`:
   - Drop quotes and brackets, and the schema when it is the default (`public`, `dbo`). Lowercase.
   - Not shown: `?`.
 
-The subject is those parts sorted alphabetically and joined by ` / `, e.g.
-`insert order_items / update orders`. No literals, ids or times: the same pattern gives the same
-text every sweep, since the platform counts by it.
+The subject is the distinct parts, each once, sorted alphabetically and joined by ` / `, e.g.
+`insert order_items / update orders`. Two sessions running the same statement are one part: a
+deadlock of two `update orders` is `update orders`, and three sessions of `update customer_credit`
+with two of `update inventory` are `update customer_credit / update inventory`, the same subject
+as the two-session deadlock of those statements. No literals, ids or times: the same pattern gives
+the same text every sweep, since the platform counts by it.
 
 ### Counting
 Each deadlock is one occurrence, at its timestamp. Per subject, report
