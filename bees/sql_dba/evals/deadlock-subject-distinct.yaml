@@ -1,0 +1,4 @@
+name: Deadlocks sweep where one SQL Server database's counter moved and system_health holds 3 deadlocks between UPDATE shop.customer_credit and UPDATE shop.inventory - one with 2 sessions (one of each), one with 3 sessions (two UPDATE shop.customer_credit, one UPDATE shop.inventory), one with 4 sessions (two of each) - deadlock_events reports one subject, update shop.customer_credit / update shop.inventory, value 3, with the 3 timestamps in evidence; no subject repeats a part, and there is one deadlock_repeat note for it
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked
