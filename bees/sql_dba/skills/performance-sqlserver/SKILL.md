@@ -169,7 +169,10 @@ indexes query in 2); everything else is plan ids, plan hashes and numbers.
      Not optional: a note written without it is wrong. Without the tool, the install gives this
      bee no GitHub access: go on to `traces_execute`. Each repo in turn until one has it:
      `gh search code "<a distinctive fragment of the text or the procedure name>" --repo <owner/name> --limit 5 --json path,url`,
-     then read the few lines around it (`gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d`).
+     then get its line from the file itself
+     (`gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d | grep -n -F '<the same fragment>'`:
+     the number before the colon is the `line` in `path:line`; never count lines yourself) and read
+     the few lines around it.
    - An index is gone: also search each repo for its name (without brackets), to find the
      migration or change that dropped it.
    - `traces_execute`, only when the search found no file, the last 24 hours, SQL on

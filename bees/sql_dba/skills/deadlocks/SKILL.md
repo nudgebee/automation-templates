@@ -225,7 +225,11 @@ find the file, so its age restarts.
    of the pattern, each repo in turn until one has it:
    `github_execute` `gh search code "<a distinctive fragment of the statement>" --repo <owner/name> --limit 5 --json path,url`
    (the fragment as code would write it: the verb, the table and a column, never a value). Then
-   read the few lines around it: `gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d`.
+   get the statement's line from the file itself:
+   `gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d | grep -n -F '<the same fragment>'`.
+   The number before the colon is the `line` in `path:line`; never count lines yourself (a counted
+   line lands on a neighbour). No match (the statement is split across lines): grep for its table
+   name instead. Then read the few lines around it without `grep`.
    Read only; quote the lines around the statement. Search each distinct statement once per run,
    even when several patterns share it (GitHub allows about 10 code searches a minute), and reuse
    the result for every pattern that has it.
