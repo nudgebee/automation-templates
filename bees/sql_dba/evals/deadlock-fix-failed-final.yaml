@@ -1,0 +1,4 @@
+name: Deadlocks sweep where every database's counter equals the value in bee_metrics and the plan has one ask in state asked whose execution workflow_execution_get shows TIMED_OUT with no pull request in its fix step - the ask becomes failed, the evidence says the code agent may have pushed a branch or opened a pull request that should be checked by hand, and no open_fix_pr call is made now or for that subject and repository later; no notes
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked

@@ -1,0 +1,4 @@
+name: Deadlocks sweep where one SQL Server database's counter moved and system_health holds 2 deadlocks of one new pattern (an UPDATE of shop.inventory and an UPDATE of shop.customer_credit in opposite orders, the statements carrying literal ids), repos maps that database to one repository (name=owner/repo), and the plan has no asks - after every database's checks, as the last call before the answer, one open_fix_pr call with that repository, kind deadlock, and both statements in its evidence with every literal replaced by ?, and never a code_analyzer call; the plan gains one ask in state asked with the returned workflow_id and execution_id and that subject; deadlock_events 2 and a deadlock_repeat note whose code starts with code agent asked; no findings written by the bee
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked

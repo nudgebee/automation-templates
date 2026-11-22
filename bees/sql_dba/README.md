@@ -8,7 +8,34 @@ plan for a person. The bee sends only read queries, and before each run it check
 can do nothing more than read. That check is not a guarantee: the guarantee is giving it a
 read-only login.
 
-## v0.5 (this version)
+## v0.6 (this version)
+What changed since v0.5:
+- **Fix pull requests by the code agent.** For a deadlock pattern that repeats, or a query that
+  regressed, the bee no longer reads the repositories itself. It asks the code agent, through its
+  automation "Open a database fix pull request" (`open_fix_pr`), to find the code that sends the
+  statements in the database's repository and open one pull request with the fix, or say why
+  nothing should change. Every ask waits for a person's approval on the Bee page.
+  - The statements go to the code agent with their literal values replaced by `?`; no instance
+    names or row values reach it or the pull request.
+  - Each pattern or query is asked about once per repository, one ask at a time per database and
+    repository, at most 10 patterns per ask. An ask nobody approved in time (4 hours by default)
+    is asked again a day later, at most 3 times; a rejected or failed one is not.
+  - The run that reads the answer puts the pull request link in its summary. The pattern's note
+    names the files and lines the code agent found and links the pull request, from the next sweep
+    that reads the pattern. One pull request can be asked for several patterns; the note says how
+    many.
+- **`repos` per database:** `name=owner/repo` gives a database its own repository; a plain
+  `owner/repo` still applies to every database, tried in the order written (a repository where the
+  code agent finds nothing is skipped).
+- **GitHub access is write** (the code agent opens the pull request). The bee itself has no GitHub
+  tool any more, so it can't read a pull request's state: the deadlock finding closing is the sign
+  a fix worked. The code agent reads GitHub through the tenant's GitHub integrations, not only the
+  one picked at install.
+- The asks and their answers are the bee's plan, kept by the platform between sweeps. Runs by hand
+  never ask.
+- Notes written before 0.6.0 keep their code until their pattern is asked about and answered.
+
+## v0.5
 What changed since v0.4:
 - **Index advice, SQL Server** (`index_advice`, daily hygiene): the indexes SQL Server's optimizer
   asked for, merged with the table's existing indexes (an existing index whose leading keys match
@@ -71,8 +98,9 @@ What changed since v0.4:
     only the deadlocks that involve each database (a session in it, or a lock on its rows), so a
     deadlock on one database of a server isn't charged to the others. `system_health` keeps a few
     files of events, so on a busy server a database's count is a floor;
-  - the first time a pattern is seen, follows it to the code: the app's error line, traces, then
-    the file in `repos`. The note says what deadlocks, where in the code, and how to fix it.
+  - hands a pattern to the code agent, which finds the code in the database's repository and opens
+    one fix pull request once a person approves; without `repos`, the app's error line and traces
+    name the service. The note says what deadlocks, where in the code, and how to fix it.
 - **The platform decides what repeats:** the bee reports numbers; rules open a finding when a
   pattern deadlocks twice in 7 days (critical at twice a day), when the counter moves twice in 7
   days and the statements can't be read (PostgreSQL and MySQL; on SQL Server, where
@@ -130,8 +158,9 @@ and the performance sweep on PostgreSQL and MySQL.
   Without logs the bee still counts deadlocks and says the statements are unavailable.
 - **Query Store on** for each SQL Server database the performance sweep should read
   (`ALTER DATABASE ... SET QUERY_STORE = ON`); the hygiene sweep flags those where it's off.
-- **Install settings:** `databases` as `name:engine:database` entries; `repos` (owner/name, comma
-  separated) to name the code; `report_channel` for the change posts; `critical_queries`
+- **Install settings:** `databases` as `name:engine:database` entries; `repos` (`name=owner/repo`
+  per database, or `owner/repo` for all, comma separated) for the code agent's fix pull requests;
+  `report_channel` for the change posts; `critical_queries`
   (`name:0xHASH`, from the Top queries finding) for the queries to follow day by day.
 - **Several databases on one SQL Server:** add the same server label to each entry
   (`orders:mssql:orders:prod-sql-1`, on RDS the instance identifier), so the server checks and the
@@ -139,4 +168,5 @@ and the performance sweep on PostgreSQL and MySQL.
   entry reports the server's checks again.
 - **At install, pick one integration for each engine you use,** even when there are several.
   That choice gives the bee read access to that engine's integrations. An engine left without a
-  pick has every database report `unreachable`. Pick the GitHub integration that can read `repos`.
+  pick has every database report `unreachable`. Pick the GitHub integration that can write to
+  `repos`: the code agent opens its pull requests there.

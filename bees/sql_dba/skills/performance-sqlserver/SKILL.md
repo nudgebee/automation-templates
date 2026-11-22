@@ -136,8 +136,10 @@ stays slow for over a week stops being "twice the week before": its critical-que
 listed) and the top SQL are where it shows then.
 
 ### The note behind a regression
-For a hash that has no note in `<bee_metrics>`, or whose note there is more than 7 days old (a
-query that regressed again). At most **one per database and three per run**, largest `added_ms`
+For a hash that has no note in `<bee_metrics>`; whose note there is more than 7 days old (a query
+that regressed again); or, with `repos` set, whose note's `code` says `code agent not asked yet`,
+whose ask is due again, or whose ask has ended in a way its note's `code` doesn't show yet (the
+agent's "The code agent" section). Its note is written whole again, so run 1 and 2 for it too. At most **one per database and three per run**, largest `added_ms`
 first; the rest get theirs on a later run. Plan XML is read in one query only, for one plan (the
 indexes query in 2); everything else is plan ids, plan hashes and numbers.
 
@@ -162,30 +164,19 @@ indexes query in 2); everything else is plan ids, plan hashes and numbers.
      - `table_exists` 0: the table is gone, renamed, or the login can't see it. Say which can't be
        told apart; don't advise recreating anything, and don't offer that plan to force.
      - No rows: the plan read no index of this database, or its XML is too deep to read.
-3. **The code.** A tool that fails or returns nothing has not answered: go on to the next one.
-   - `module` from 1 is a procedure: that is the code in the database; also search for its name
-     in `repos` (below) to find the caller.
-   - `github_execute`, first, whenever `repos` is set and `github_execute` is one of your tools.
-     Not optional: a note written without it is wrong. Without the tool, the install gives this
-     bee no GitHub access: go on to `traces_execute`. Each repo in turn until one has it:
-     `gh search code "<a distinctive fragment of the text or the procedure name>" --repo <owner/name> --limit 5 --json path,url`,
-     then get its line from the file itself
-     (`gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d | grep -n -F '<the same fragment>'`:
-     the number before the colon is the `line` in `path:line`; never count lines yourself) and read
-     the few lines around it.
-   - An index is gone: also search each repo for its name (without brackets), to find the
-     migration or change that dropped it.
-   - `traces_execute`, only when the search found no file, the last 24 hours, SQL on
-     `traces_view`: a database span's statement is in `endpoint` (there is no `db_statement`
-     column). Spans whose `endpoint` matches (`ILIKE`) the query's main table and a distinctive
-     part of its text, grouped by `service_name` and `endpoint`. That gives the service and the
-     endpoint.
-   - Nothing found: the note names the service and endpoint, or says "code not found", and ends
-     with the repos whose `gh search code` ran without an error in this run: `code not found
-     (searched acme/orders-api)`. Never name a repo you did not search in this run. With `repos` not set,
-     `code not found (repos not set)`; without `github_execute`, `code not looked up (no GitHub
-     access)`. Say in `evidence` what each search returned, or that `github_execute` was not one
-     of your tools.
+3. **The code.**
+   - `module` from 1 is a procedure: that is the code in the database; name it in the evidence.
+   - **With `repos` set**, the code agent finds the code: follow the agent's "The code agent"
+     section, `open_fix_pr` with `kind: regression`, one call per repository for this run's
+     regressions on the database, at the end of the run. The evidence per query is its hash, its
+     text (cut, every literal value replaced by `?`), the procedure, the plans and timings from 1,
+     and what 2 found: statistics, SQL Server's recommendation, and any index the faster plan used
+     that is gone (its table and name).
+   - **With `repos` not set**: `traces_execute`, the last 24 hours, SQL on `traces_view`: a
+     database span's statement is in `endpoint` (there is no `db_statement` column). Spans whose
+     `endpoint` matches (`ILIKE`) the query's main table and a distinctive part of its text, grouped
+     by `service_name` and `endpoint`. That gives the service and the endpoint; nothing found:
+     `code not found (repos not set)`. A tool that fails or returns nothing has not answered.
 
 Write `{target, check: query_regression, subject: <hash>, detail, code, fix, links}`:
 - `detail`: the text (as read, cut); before and after, executions and average ms per window and
@@ -197,7 +188,7 @@ Write `{target, check: query_regression, subject: <hash>, detail, code, fix, lin
 - `fix`, from that evidence:
   - **An index the faster plan used is gone** (`table_exists` 1, `still_exists` 0): the fix is to
     recreate it, or to undo its rename, not to force that plan (forcing fails without the index).
-    Name the index and its table, and the change that dropped or renamed it when the code step
+    Name the index and its table, and the change that dropped or renamed it when the code agent
     finds one; its definition is in that change or in the repo's history.
   - **The plan shape changed**, and an earlier plan of the **same query id** was faster: it is a
     candidate to force when every index it used still exists (each row `still_exists` 1), it is
@@ -212,9 +203,9 @@ Write `{target, check: query_regression, subject: <hash>, detail, code, fix, lin
   - **The plan shape didn't change:** forcing can't help. Name what the evidence points at
     instead: statistics updated or stale on its tables, a jump in executions, rows or reads per
     call, or blocking (the deadlocks sweep's blocking notes on this database).
-- `code`: `owner/name path:line` from the search, the procedure, or what "Nothing found" says
-  (with the repos searched in this run, or why none was).
-- `links`: the repo file URL, and any event from the event check.
+- `code`: from its ask in the plan (the agent's "The code agent" section), with the procedure when
+  there is one; or the service and endpoint, or `code not found (repos not set)`, without `repos`.
+- `links`: the fix pull request when there is one, and any event from the event check.
 
 If the run is near its end (about 35 turns used), stop writing notes and answer: the numbers
 matter more than a note, and a run that runs out of turns keeps neither.

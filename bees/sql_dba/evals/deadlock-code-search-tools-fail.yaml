@@ -1,4 +1,0 @@
-name: Deadlocks sweep where one SQL Server database's counter moved and system_health holds 3 deadlocks of one new pattern (an UPDATE of inventory and an UPDATE of customer_credit in opposite orders), logs_execute_v2 rejects both query formats with an error and traces_execute fails with a server error, and the repo in repos has both statements in two Go files - a code search still runs, deadlock_events 3 for that subject and a deadlock_repeat note whose code names both files with the lines read, the failed logs and traces calls said in evidence; no findings written by the bee
-trigger: fixtures/deadlocks-run.json
-expect:
-  verdict: checked

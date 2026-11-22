@@ -1,0 +1,4 @@
+name: Deadlocks sweep where one SQL Server database's counter moved and system_health holds deadlocks of a pattern whose plan ask FAILED 30 hours ago because no one approved this run in time (state expired, tries 1) - one open_fix_pr call for that pattern in the same repository, last before the answer, and the same plan entry gets the new ids, the new asked_at and tries 2; no findings written by the bee
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked

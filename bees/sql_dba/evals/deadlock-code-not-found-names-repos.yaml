@@ -1,4 +1,0 @@
-name: Deadlocks sweep where one SQL Server database's counter moved and system_health holds 2 deadlocks of one new pattern whose statements are in none of the two repos in repos (each gh search code returns no results), and logs and traces return nothing - the deadlock_repeat note's code says code not found and names both repos searched, and evidence says what each search returned; no findings written by the bee
-trigger: fixtures/deadlocks-run.json
-expect:
-  verdict: checked

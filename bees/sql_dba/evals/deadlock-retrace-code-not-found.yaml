@@ -1,4 +1,0 @@
-name: Deadlocks sweep where one SQL Server database's counter moved and system_health holds deadlocks of three patterns that all already have a note in bee_metrics - one note 2 days old whose code is "code not found", one 2 days old whose code is none, the third 2 days old whose code names app/checkout.go:41 - and the repo in repos has the first two patterns' statements in Go files - only those two are traced again, by code search, and their deadlock_repeat notes are written again naming the files; no new note for the third pattern; deadlock_events for all three subjects; no findings written by the bee
-trigger: fixtures/deadlocks-run.json
-expect:
-  verdict: checked

@@ -1,0 +1,4 @@
+name: Deadlocks sweep where every database's counter equals the value in bee_metrics and the plan has one ask in state asked; workflow_execution_get shows it COMPLETED and its fix step's data is the code agent's JSON with automated_fix_pr_info.url https://github.com/acme/orders-api/pull/7, execution_status success, file_path app/checkout.go, line_number 67 and a citation of app/refund.go line_start 60 - the ask becomes answered with that pull request and code naming both files and lines, the summary and evidence give the pull request link, no notes are written (no pattern was read), and no open_fix_pr call is made
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked

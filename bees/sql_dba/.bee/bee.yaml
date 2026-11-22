@@ -1,7 +1,7 @@
 schema: bee/v1
 name: sql_dba                            # canonical: snake_case, fixed forever
 display_name: SQL DBA Bee
-version: 0.5.10
+version: 0.6.0
 description: Checks your SQL Server, PostgreSQL and MySQL databases the way a DBA would - daily hygiene with index advice from the workload, every six hours the deadlocks and blocking that repeat, and every day on SQL Server the waits, top queries, critical queries and regressions, with the code behind them. Findings live on the Bee page; the team hears about them only when something changed.
 author: { name: Nudgebee }
 
@@ -26,9 +26,9 @@ integrations:
     why: Reads MySQL performance_schema and sys with a read-only login (SELECT, PROCESS).
   - id: code
     types: [github]
-    access: read
+    access: write
     required: false
-    why: Reads the repositories in `repos` to name the code behind a repeating deadlock or a regressed query.
+    why: The code agent finds the code behind a repeating deadlock or a regressed query in a repository from `repos`, and opens one pull request with the fix. Asks every time; the approver checks the repository the ask names. The code agent reaches it through the tenant's GitHub integration for that repository.
 
 settings:
   databases:
@@ -39,7 +39,7 @@ settings:
   repos:
     type: string
     title: Code repositories
-    description: "Comma-separated GitHub repositories as owner/name whose code uses these databases, e.g. acme/orders-api,acme/billing. The bee reads them to name the code behind a repeating deadlock or a regressed query. Leave empty to stop at the service and endpoint."
+    description: "Comma-separated GitHub repositories whose code uses these databases. name=owner/repo is that database's repository (name as in databases); a plain owner/repo is every database's. Example: orders-db=acme/orders-api,billing=acme/billing. For a repeating deadlock or a regressed query, the bee asks the code agent to find the code in the database's repository and open one pull request with the fix; each ask waits for a person's approval. Leave empty to stop at the statements, the service and the endpoint."
   critical_queries:
     type: string
     title: Critical queries (SQL Server)
@@ -106,6 +106,14 @@ output:                                  # summary, evidence and runs are built 
         earlier_fixes: { type: string }
         links: { type: array, items: { type: string } }
       required: [target, check, subject, detail]
+  # The code agent's asks (open_fix_pr) and their answers, kept by the platform between sweeps.
+  plan:
+    type: object
+
+# Only sweeps keep their plan: a run by hand never asks the code agent.
+memory:
+  plan_field: plan
+  plan_from: schedule
 
 # The platform keeps one row a day per (database, check) from checked and findings, the raw
 # numbers in metrics per sweep, and the latest note per (database, check, subject). The rules
