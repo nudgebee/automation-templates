@@ -1,0 +1,4 @@
+name: Deadlocks sweep where every database's counter equals the value in bee_metrics and the plan has one ask in state asked; workflow_execution_get shows that execution FAILED because the approval was rejected - the gate queries and the ask's read go in one turn, the ask becomes declined and the whole plan is returned with that change, the summary says the fix request was declined, deadlock_events 0 for each database, no notes, and no open_fix_pr call
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked

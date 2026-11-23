@@ -1,6 +1,6 @@
 ---
 name: deadlocks
-description: The deadlocks and blocking sweep for one database - the counter gate, the blocking snapshot, deadlock patterns from the engine or its logs, and the code behind a pattern the first time it is seen.
+description: The deadlocks and blocking sweep for one database - the counter gate, the blocking snapshot, deadlock patterns from the engine or its logs, and the code agent's fix for a pattern.
 ---
 # Deadlocks and blocking
 
@@ -213,51 +213,36 @@ kept): report `{target, metric: deadlock_events, subject: "", value: 0}` and say
 `evidence`.
 
 ## 5. The code behind a subject
-For a subject that is NOT listed with a note in `<bee_metrics>`, once per subject. A subject
-listed with a note is done, even if it recurs, except when its note names no file (its `code:` is
-`none`, "code not found", "code not looked up", or only a service and endpoint) and its age is
-shown in days ("1 days" or more): trace it once more, and write its note again whether or not you
-find the file, so its age restarts.
-1. **Search the repos**, first, whenever `repos` is set and `github_execute` is one of your tools.
-   This step is not optional: a note written without it is wrong, even when logs or traces would
-   have answered. `github_execute` missing from your tools means the install gives this bee no
-   GitHub access: skip this step and go on to step 2. For each statement
-   of the pattern, each repo in turn until one has it:
-   `github_execute` `gh search code "<a distinctive fragment of the statement>" --repo <owner/name> --limit 5 --json path,url`
-   (the fragment as code would write it: the verb, the table and a column, never a value). Then
-   get the statement's line from the file itself:
-   `gh api repos/<owner>/<name>/contents/<path> --jq .content | base64 -d | grep -n -F '<the same fragment>'`.
-   The number before the colon is the `line` in `path:line`; never count lines yourself (a counted
-   line lands on a neighbour). No match (the statement is split across lines): grep for its table
-   name instead. Then read the few lines around it without `grep`.
-   Read only; quote the lines around the statement. Search each distinct statement once per run,
-   even when several patterns share it (GitHub allows about 10 code searches a minute), and reuse
-   the result for every pattern that has it.
-2. **The app's error line**, only when step 1 found no file. `logs_execute_v2`, two minutes either
-   side of one occurrence (`start_time`, `end_time`), for the driver's deadlock error: SQL Server
-   `was deadlocked on lock resources`, PostgreSQL `deadlock detected`, MySQL `Deadlock found when
-   trying to get lock`. Its `command` is a JSON filter, never LogQL or an Elasticsearch query:
+For each subject read in this run (step 3). A subject with no note in `<bee_metrics>` gets one. A
+subject with a note is written again only when its ask's answer changed its `code` (the agent's
+"The code agent" section).
+
+**With `repos` set**, the code agent finds the code: follow the agent's "The code agent" section.
+Ask `open_fix_pr` with `kind: deadlock` for this database's subjects that need it, all of them in
+one call per repository, at the end of the run with the other asks. Each subject's evidence is the
+deadlock you read: both statements with every literal value replaced by `?`, the tables and indexes,
+the lock each process held and waited for, the victim, and your fix. The note's `code` comes from its
+ask in the plan, once the call has returned.
+
+**With `repos` not set**, name the service and endpoint:
+1. **The app's error line.** `logs_execute_v2`, two minutes either side of one occurrence
+   (`start_time`, `end_time`), for the driver's deadlock error: SQL Server `was deadlocked on lock
+   resources`, PostgreSQL `deadlock detected`, MySQL `Deadlock found when trying to get lock`. Its
+   `command` is a JSON filter, never LogQL or an Elasticsearch query:
    `{"where": {"message": {"_ilike": "%was deadlocked on lock resources%"}}, "limit": 20}`.
-   A file:line or function in the line or its stack: read it from the repos as in step 1
-   (without `github_execute`, give the file:line as the log has it).
-3. **Traces**, only when steps 1 and 2 found no file. `traces_execute`, five minutes either side,
-   SQL on `traces_view`. A database span's statement is in `endpoint` (there is no `db_statement`
-   column):
+   A file:line or function in the line or its stack: give it as the log has it.
+2. **Traces**, only when step 1 found no file. `traces_execute`, five minutes either side, SQL on
+   `traces_view`. A database span's statement is in `endpoint` (there is no `db_statement` column):
    `SELECT service_name, endpoint, count(*) AS n FROM traces_view WHERE timestamp >= parseDateTimeBestEffort('<from>') AND timestamp < parseDateTimeBestEffort('<to>') AND endpoint ILIKE '%<table>%' GROUP BY service_name, endpoint ORDER BY n DESC LIMIT 20`.
    That gives the service, and the endpoint when the app's HTTP spans share the trace.
-4. **Nothing found:** the note's `code` names the service and endpoint from step 3, or says
-   "code not found", and in both cases ends with the repos whose `gh search code` ran without an
-   error in this run: `code not found (searched acme/orders-api, acme/billing)`. Never name a repo
-   you did not search in this run. With `repos` not set: `code not found (repos not set)`. Without
-   `github_execute`: `code not looked up (no GitHub access)`, after the service and endpoint when
-   step 3 found them. Say in `evidence` what each search returned, or that `github_execute` was
-   not one of your tools.
+3. **Nothing found:** `code not found (repos not set)`, after the service and endpoint when step 2
+   found them.
 
 Then write the note `{target, check: deadlock_repeat, subject, detail, code, fix, links}`:
 - `detail`: both statements, the tables and indexes, the lock each held and waited for, and the
   victim, as read;
-- `code`: `owner/name path:line` from step 1 or 2, or what step 4 says (with the repos searched
-  in this run, or why none was);
+- `code`: from its ask in the plan (the agent's "The code agent" section), or from steps 1-3 without
+  `repos`;
 - `fix`: from the evidence, the change that removes the cycle. Common ones:
   - two transactions take the same rows or tables in a different order → one order (sort the keys
     of a batch; touch the parent before the child everywhere);
@@ -268,6 +253,7 @@ Then write the note `{target, check: deadlock_repeat, subject, detail, code, fix
     clustered one) → a covering index for the reader;
   - MySQL gap locks under `REPEATABLE READ` on inserts → a unique lookup, or `READ COMMITTED` for
     that path;
-- `links`: the repo file URL, and any event from the agent's event check.
+- `links`: the fix pull request when there is one, and any event from the agent's event check.
 
-Never call `code_analyzer`. Never run `EXPLAIN ANALYZE`, and never send anything that writes.
+Never call `code_analyzer` yourself: only `open_fix_pr` runs it. Never run `EXPLAIN ANALYZE`, and
+never send anything that writes.

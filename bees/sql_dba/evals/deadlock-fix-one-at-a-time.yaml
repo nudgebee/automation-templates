@@ -1,0 +1,4 @@
+name: Deadlocks sweep where one SQL Server database's counter moved and system_health holds 2 deadlocks of a new pattern, and the plan already has an ask in state asked for that database and its repository, which workflow_execution_get shows still RUNNING - no open_fix_pr call (one ask at a time per database and repository), the ask stays asked, and the new pattern's deadlock_repeat note's code starts with code agent not asked yet; deadlock_events 2; no findings written by the bee
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked

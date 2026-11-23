@@ -1,0 +1,4 @@
+name: Deadlocks sweep where one SQL Server database's counter moved and system_health holds 3 deadlocks of a pattern whose note code in bee_metrics starts with code agent asked, and the plan's ask for it is answered with a pull request link and code - the deadlock_repeat note is written again with code starting fix PR and the link, then the files and lines, and the pull request in links; no open_fix_pr call; deadlock_events 3; no findings written by the bee
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked

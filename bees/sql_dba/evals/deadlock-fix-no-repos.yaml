@@ -1,0 +1,4 @@
+name: Deadlocks sweep where one SQL Server database's counter moved and system_health holds 2 deadlocks of one new pattern, repos is not set, the app logged no deadlock error line and traces name no service - no open_fix_pr call, the deadlock_repeat note's code is code not found (repos not set), and the plan is returned as given; deadlock_events 2; no findings written by the bee
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked

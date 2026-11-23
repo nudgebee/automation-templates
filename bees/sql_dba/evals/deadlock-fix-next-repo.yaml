@@ -1,0 +1,4 @@
+name: Deadlocks sweep where repos lists two plain repositories, one SQL Server database's counter moved and system_health holds deadlocks of a pattern, and the plan's ask for it in the first repository is in state asked; workflow_execution_get shows it COMPLETED with no automated_fix_pr_info and a description saying the statements are not in this repository - the ask becomes not_here, and one open_fix_pr call, last before the answer, asks the second repository for that pattern, added to the plan as asked; no findings written by the bee
+trigger: fixtures/deadlocks-run.json
+expect:
+  verdict: checked

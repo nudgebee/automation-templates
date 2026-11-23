@@ -1,4 +1,0 @@
-name: Deadlocks sweep where one SQL Server database's counter moved and system_health holds 2 deadlocks of one new pattern, repos is set, and github_execute is not one of the agent's tools (the install gives the bee no GitHub access), and logs and traces return nothing - the deadlock_repeat note's code is code not looked up (no GitHub access), never says searched or names a repo as searched, and evidence says GitHub was not available; no findings written by the bee
-trigger: fixtures/deadlocks-run.json
-expect:
-  verdict: checked
