@@ -34,6 +34,13 @@ What changed since v0.5:
 - The asks and their answers are the bee's plan, kept by the platform between sweeps. Runs by hand
   never ask.
 - Notes written before 0.6.0 keep their code until their pattern is asked about and answered.
+- **One subject per deadlock pattern** (0.6.1): a deadlock's subject names each statement once,
+  however many sessions ran it, so the same two statements deadlocking across two, three or four
+  sessions are one pattern and one finding, not one per session count. A pattern recorded before
+  0.6.1 under a repeated part keeps its old subject until its 7 days of deadlocks pass, then
+  closes; its deadlocks count under the new subject from the first 0.6.1 sweep, which is a new
+  pattern with no note yet, so it is traced (and asked about) again. The Database health
+  dashboard's stat tiles are half a row wide, so their titles show.
 
 ## v0.5
 What changed since v0.4:
