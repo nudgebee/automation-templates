@@ -8,6 +8,9 @@
 - slug: aws_cost_anomaly_cleanup
   path: templates/aws_cost_anomaly_cleanup.yaml
   sha256: b66b9cb2ecd96898c9ad83d55d5c1e6842a69c8c1eb75efea427571f46e77980
+- slug: aws_iam_user_access_review
+  path: templates/aws_iam_user_access_review.yaml
+  sha256: 1fc70addc0355992ca8696fc0b6cd4fa7a318e7b2a0d29bdd4b59fe47894c46e
 - slug: cleanup_evicted_and_failed_pods
   path: templates/cleanup_evicted_and_failed_pods.yaml
   sha256: d9952e67573780a7db443bd9db5ba593fe6dc8e7c9968cf674a35d5c7fe743d5
